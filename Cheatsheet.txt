@@ -1,0 +1,5 @@
+# Desarrollo (con LLM local):
+docker compose --env-file .env.dev --profile dev up
+
+# Producción (con APIs de pago):
+docker compose --env-file .env.prod up

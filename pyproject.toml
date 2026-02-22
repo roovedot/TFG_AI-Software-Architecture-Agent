@@ -1,0 +1,79 @@
+[project]
+name = "tfg-multiagent-architect"
+version = "0.1.0"
+description = "Multi-agent system for automated software architecture design"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "SEE LICENSE FILE"}
+
+dependencies = [
+    # Orchestration
+    "langgraph>=0.2",
+    "langchain>=0.3",
+    "langchain-openai>=0.2",
+    "langchain-anthropic>=0.3",
+    "langchain-community>=0.3",
+
+    # API
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "websockets>=14.0",
+
+    # Data validation
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+
+    # Vector store
+    "qdrant-client>=1.12",
+
+    # LLM providers
+    "openai>=1.55",
+    "anthropic>=0.39",
+
+    # Observability
+    "langsmith>=0.1",
+    "structlog>=24.4",
+
+    # Utilities
+    "python-dotenv>=1.0",
+    "httpx>=0.28",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "ruff>=0.8",
+]
+frontend = [
+    "streamlit>=1.40",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-v --tb=short"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

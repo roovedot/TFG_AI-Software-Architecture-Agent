@@ -12,8 +12,7 @@ services:
       - ./src:/app/src
       - ./data:/app/data
     depends_on:
-      qdrant:
-        condition: service_healthy
+      - qdrant
     restart: unless-stopped
 
   frontend:
@@ -36,11 +35,6 @@ services:
       - "6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6333/readyz"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
     restart: unless-stopped
 
   # ─── Development only: Ollama para LLM local ─────────────────────────────

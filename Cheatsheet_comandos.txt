@@ -1,0 +1,11 @@
+
+
+## Levantar entorno DEV
+
+sudo docker compose --env-file .env.dev --profile dev up
+
+
+## Cambiar .env predeterminado
+
+ln -sf .env.prod .env   # Prod
+ln -sf .env.dev .env    # Dev

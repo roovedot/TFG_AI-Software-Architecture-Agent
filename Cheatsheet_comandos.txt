@@ -1,9 +1,15 @@
 
 
-## Levantar entorno DEV
+## Entorno DEV
 
+# Levantar
 sudo docker compose --env-file .env.dev --profile dev up
 
+# Down
+sudo docker compose --env-file .env.dev --profile dev down
+
+# Producción (con APIs de pago):
+docker compose --env-file .env.prod up
 
 ## Cambiar .env predeterminado
 

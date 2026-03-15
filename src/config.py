@@ -71,8 +71,12 @@ class Settings(BaseSettings):
 
     # LangSmith
     langchain_tracing_v2: bool = False
+    langsmith_tracing: bool = False
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
     langchain_api_key: str = ""
-    langchain_project: str = "tfg-multiagent-architect"
+    langsmith_api_key: str = ""
+    langchain_project: str = "TFG"
+    langsmith_project: str = "TFG"
 
     @property
     def is_dev(self) -> bool:

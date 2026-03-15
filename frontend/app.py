@@ -81,7 +81,7 @@ if analyze and project_description:
             st.error(f"Cannot connect to API at {API_BASE_URL}")
             st.stop()
 
-    report = data["report"]
+    markdown_content = data["markdown_content"]
     metrics = data["metrics"]
 
     # ── Metrics bar ──────────────────────────────────────────────────────
@@ -93,109 +93,17 @@ if analyze and project_description:
     col3.metric("Output tokens", f"{metrics['output_tokens']:,}")
     col4.metric("Est. cost", f"${metrics['estimated_cost_usd']:.4f}")
 
-    # ── Results tabs ─────────────────────────────────────────────────────
+    # ── Download button ───────────────────────────────────────────────────
 
-    tabs = st.tabs([
-        "Summary",
-        "Requirements",
-        "Tech Stack",
-        "Architecture",
-        "Risks",
-        "Dev Plan",
-        "Raw JSON",
-    ])
+    st.download_button(
+        label="Descargar .md",
+        data=markdown_content,
+        file_name="architecture_report.md",
+        mime="text/markdown",
+    )
 
-    # Summary
-    with tabs[0]:
-        st.markdown(report.get("summary", "*No summary generated.*"))
+    st.divider()
 
-    # Requirements
-    with tabs[1]:
-        reqs = report.get("requirements", [])
-        if reqs:
-            st.dataframe(
-                reqs,
-                column_config={
-                    "description": st.column_config.TextColumn(
-                        "Description", width="large"
-                    ),
-                    "type": st.column_config.TextColumn("Type", width="small"),
-                    "priority": st.column_config.TextColumn("Priority", width="small"),
-                },
-                use_container_width=True,
-                hide_index=True,
-            )
-        else:
-            st.info("No requirements extracted.")
+    # ── Markdown report ───────────────────────────────────────────────────
 
-    # Tech Stack
-    with tabs[2]:
-        for tech in report.get("tech_stack", []):
-            with st.expander(f"**{tech['name']}** — {tech['category']}"):
-                st.write(tech.get("justification", ""))
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown("**Pros**")
-                    for pro in tech.get("pros", []):
-                        st.markdown(f"- {pro}")
-                with c2:
-                    st.markdown("**Cons**")
-                    for con in tech.get("cons", []):
-                        st.markdown(f"- {con}")
-                alts = tech.get("alternatives", [])
-                if alts:
-                    st.caption(f"Alternatives: {', '.join(alts)}")
-
-    # Architecture
-    with tabs[3]:
-        arch = report.get("architecture")
-        if arch:
-            st.subheader(f"Pattern: {arch['pattern']}")
-            st.write(arch.get("justification", ""))
-
-            if arch.get("components"):
-                st.markdown("### Components")
-                for comp in arch["components"]:
-                    name = comp.get("name", "Unknown")
-                    resp = comp.get("responsibility", "")
-                    tech_name = comp.get("technology", "")
-                    st.markdown(f"- **{name}** ({tech_name}): {resp}")
-
-            if arch.get("design_patterns"):
-                st.markdown("### Design Patterns")
-                st.write(", ".join(arch["design_patterns"]))
-
-            if arch.get("infrastructure"):
-                st.markdown("### Infrastructure")
-                for key, value in arch["infrastructure"].items():
-                    st.markdown(f"- **{key}**: {value}")
-        else:
-            st.info("No architecture proposal generated.")
-
-    # Risks
-    with tabs[4]:
-        for risk in report.get("risks", []):
-            severity = risk.get("severity", "medium")
-            if severity == "high":
-                st.error(f"**{risk['risk']}**\n\nMitigation: {risk['mitigation']}")
-            elif severity == "medium":
-                st.warning(f"**{risk['risk']}**\n\nMitigation: {risk['mitigation']}")
-            else:
-                st.info(f"**{risk['risk']}**\n\nMitigation: {risk['mitigation']}")
-
-    # Development Plan
-    with tabs[5]:
-        for phase in report.get("development_plan", []):
-            with st.expander(
-                f"**{phase.get('phase', 'Phase')}** — {phase.get('duration', 'TBD')}"
-            ):
-                deliverables = phase.get("deliverables", [])
-                for d in deliverables:
-                    st.markdown(f"- {d}")
-                deps = phase.get("dependencies", [])
-                if deps:
-                    st.caption(f"Depends on: {', '.join(deps)}")
-
-    # Raw JSON
-    with tabs[6]:
-        st.json(data)
+    st.markdown(markdown_content)

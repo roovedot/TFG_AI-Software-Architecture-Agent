@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from src.models.output import AnalysisReport
-
 
 class LLMMetrics(BaseModel):
     """Metrics captured from a single LLM invocation."""
@@ -24,5 +22,5 @@ class LLMMetrics(BaseModel):
 class BaselineResult(BaseModel):
     """Complete result from the single-agent baseline analysis."""
 
-    report: AnalysisReport
+    markdown_content: str
     metrics: LLMMetrics

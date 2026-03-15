@@ -8,7 +8,6 @@ from fastapi import APIRouter, HTTPException
 from src.config import settings
 from src.models.input import ProjectInput
 from src.models.metrics import BaselineResult, LLMMetrics
-from src.models.output import AnalysisReport
 from src.orchestration.single_graph import build_single_agent_graph
 
 logger = structlog.get_logger()
@@ -37,7 +36,7 @@ async def analyze_baseline(project_input: ProjectInput) -> BaselineResult:
         result = await graph.ainvoke(initial_state)
 
         return BaselineResult(
-            report=AnalysisReport.model_validate(result["final_report"]),
+            markdown_content=result["markdown_content"],
             metrics=LLMMetrics.model_validate(result["metrics"]),
         )
     except Exception as e:

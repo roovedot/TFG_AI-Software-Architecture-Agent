@@ -36,7 +36,7 @@ class PipelineState(TypedDict, total=False):
 
     # Validator & Aggregator output
     validation_results: dict[str, Any]
-    final_report: dict[str, Any]
+    markdown_content: str
 
     # Metrics
     metrics: dict[str, Any]

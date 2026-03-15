@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 from typing import Any
 
@@ -14,17 +13,16 @@ from src.agents.base import BaseAgent
 from src.config import LLMProvider, settings
 from src.llm.prompts import SINGLE_AGENT_SYSTEM_PROMPT, format_user_message
 from src.llm.providers import get_llm
-from src.models.output import AnalysisReport
 from src.utils.cost import estimate_cost
 
 logger = structlog.get_logger()
 
 
 class SingleAgent(BaseAgent):
-    """Baseline agent that produces a full AnalysisReport in a single LLM call.
+    """Baseline agent that produces a full architecture report in a single LLM call.
 
-    Uses structured output (function calling / tool use) for OpenAI and Anthropic,
-    with a JSON-in-prompt fallback for Ollama.
+    The LLM generates a Markdown document directly. All providers use the same
+    plain ainvoke() path — no structured output or JSON schema injection.
     """
 
     def __init__(self, llm: BaseChatModel | None = None) -> None:
@@ -40,7 +38,7 @@ class SingleAgent(BaseAgent):
         documents = state.get("user_documents", [])
 
         messages = [
-            SystemMessage(content=self._build_system_prompt()),
+            SystemMessage(content=SINGLE_AGENT_SYSTEM_PROMPT),
             HumanMessage(content=format_user_message(project_description, documents)),
         ]
 
@@ -50,10 +48,9 @@ class SingleAgent(BaseAgent):
         )
 
         start = time.perf_counter()
-        report, raw_message = await self._invoke_llm(messages)
+        markdown, raw_message = await self._invoke_llm(messages)
         elapsed = time.perf_counter() - start
 
-        # Extract token usage from the raw AIMessage
         input_tokens, output_tokens = self._extract_tokens(raw_message)
         total_tokens = input_tokens + output_tokens
 
@@ -79,62 +76,49 @@ class SingleAgent(BaseAgent):
         )
 
         return {
-            "final_report": report.model_dump(),
+            "markdown_content": markdown,
             "metrics": metrics,
         }
 
-    def _build_system_prompt(self) -> str:
-        """Build the system prompt, injecting JSON schema for Ollama."""
-        if settings.llm_provider == LLMProvider.OLLAMA:
-            schema = json.dumps(AnalysisReport.model_json_schema(), indent=2)
-            return (
-                f"{SINGLE_AGENT_SYSTEM_PROMPT}\n\n"
-                "You MUST respond with valid JSON matching this exact schema:\n"
-                f"```json\n{schema}\n```\n"
-                "Respond ONLY with the JSON object, no additional text."
-            )
-        return SINGLE_AGENT_SYSTEM_PROMPT
+    async def _invoke_llm(self, messages: list) -> tuple[str, Any]:
+        """Invoke the LLM and return (markdown_content, raw_ai_message).
 
-    async def _invoke_llm(self, messages: list) -> tuple[AnalysisReport, Any]:
-        """Invoke the LLM and return (parsed_report, raw_ai_message).
-
-        Uses with_structured_output for OpenAI/Anthropic, with a manual
-        JSON parsing fallback for Ollama.
+        All providers use plain ainvoke() — no structured output.
         """
-        if settings.llm_provider == LLMProvider.OLLAMA:
-            return await self._invoke_ollama_fallback(messages)
-
-        structured_llm = self._llm.with_structured_output(
-            AnalysisReport, include_raw=True
-        )
-        result = await structured_llm.ainvoke(messages)
-        return result["parsed"], result["raw"]
-
-    async def _invoke_ollama_fallback(
-        self, messages: list
-    ) -> tuple[AnalysisReport, Any]:
-        """Fallback for Ollama: prompt-based JSON generation + manual parsing."""
         raw_message = await self._llm.ainvoke(messages)
-        content = raw_message.content
+        markdown = self._extract_markdown(raw_message.content)
+        return markdown, raw_message
 
-        # Try to extract JSON from the response (may be wrapped in ```json blocks)
-        json_str = content
-        if "```json" in content:
-            json_str = content.split("```json")[1].split("```")[0]
-        elif "```" in content:
-            json_str = content.split("```")[1].split("```")[0]
+    def _extract_markdown(self, content: str) -> str:
+        """Strip accidental code-block wrappers from LLM output.
 
-        report = AnalysisReport.model_validate_json(json_str.strip())
-        return report, raw_message
+        Some models (especially Ollama) wrap the entire response in
+        ```markdown ... ``` or ``` ... ``` despite being told not to.
+        Uses rfind for the closing fence to preserve internal Mermaid fences.
+        """
+        content = content.strip()
+
+        # Handle ```markdown fence (common from Ollama)
+        if content.startswith("```markdown"):
+            inner = content[len("```markdown"):]
+            if "```" in inner:
+                inner = inner[:inner.rfind("```")]
+            return inner.strip()
+
+        # Handle generic ``` fence wrapping the entire response
+        # Only strip when count == 2 to avoid cutting internal Mermaid fences
+        if content.startswith("```") and content.endswith("```") and content.count("```") == 2:
+            inner = content[3:content.rfind("```")]
+            return inner.strip()
+
+        return content
 
     def _extract_tokens(self, raw_message: Any) -> tuple[int, int]:
         """Extract input and output token counts from the AI message."""
-        # LangChain populates usage_metadata for OpenAI and Anthropic
         usage = getattr(raw_message, "usage_metadata", None)
         if usage:
             return usage.get("input_tokens", 0), usage.get("output_tokens", 0)
 
-        # Ollama: check response_metadata
         resp_meta = getattr(raw_message, "response_metadata", {})
         if "prompt_eval_count" in resp_meta:
             return (

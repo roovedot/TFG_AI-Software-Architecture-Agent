@@ -7,7 +7,7 @@ services:
     ports:
       - "${API_PORT:-8000}:8000"
     env_file:
-      - .env
+      - ${ENV_FILE}
     volumes:
       - ./src:/app/src
       - ./data:/app/data
@@ -23,7 +23,7 @@ services:
     ports:
       - "8501:8501"
     env_file:
-      - .env
+      - ${ENV_FILE}
     depends_on:
       - api
     restart: unless-stopped

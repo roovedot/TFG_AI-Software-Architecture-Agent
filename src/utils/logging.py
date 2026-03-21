@@ -18,7 +18,7 @@ def setup_logging() -> None:
             structlog.processors.TimeStamper(fmt="iso"),
             (
                 structlog.dev.ConsoleRenderer()
-                if settings.is_dev
+                if settings.is_local
                 else structlog.processors.JSONRenderer()
             ),
         ],

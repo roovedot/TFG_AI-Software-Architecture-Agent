@@ -10,7 +10,6 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.agents.base import BaseAgent
-from src.config import LLMProvider, settings
 from src.llm.prompts import SINGLE_AGENT_SYSTEM_PROMPT, format_user_message
 from src.llm.providers import get_llm
 from src.utils.cost import estimate_cost
@@ -25,8 +24,15 @@ class SingleAgent(BaseAgent):
     plain ainvoke() path — no structured output or JSON schema injection.
     """
 
-    def __init__(self, llm: BaseChatModel | None = None) -> None:
-        self._llm = llm or get_llm()
+    def __init__(
+        self,
+        llm: BaseChatModel | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> None:
+        self._provider = provider
+        self._model = model
+        self._llm = llm or get_llm(provider=provider, model=model)
 
     @property
     def name(self) -> str:
@@ -36,16 +42,18 @@ class SingleAgent(BaseAgent):
         """Execute the single-agent analysis pipeline."""
         project_description = state["project_description"]
         documents = state.get("user_documents", [])
+        images = state.get("user_images", [])
 
+        content = format_user_message(project_description, documents, images)
         messages = [
             SystemMessage(content=SINGLE_AGENT_SYSTEM_PROMPT),
-            HumanMessage(content=format_user_message(project_description, documents)),
+            HumanMessage(content=content),
         ]
 
-        logger.info(
-            "Starting single-agent analysis",
-            provider=settings.llm_provider.value,
-        )
+        provider = self._provider or "unknown"
+        model = self._model or "unknown"
+
+        logger.info("Starting single-agent analysis", provider=provider, model=model)
 
         start = time.perf_counter()
         markdown, raw_message = await self._invoke_llm(messages)
@@ -53,9 +61,6 @@ class SingleAgent(BaseAgent):
 
         input_tokens, output_tokens = self._extract_tokens(raw_message)
         total_tokens = input_tokens + output_tokens
-
-        provider = settings.llm_provider.value
-        model = self._get_model_name()
         cost = estimate_cost(provider, model, input_tokens, output_tokens)
 
         metrics = {
@@ -81,10 +86,7 @@ class SingleAgent(BaseAgent):
         }
 
     async def _invoke_llm(self, messages: list) -> tuple[str, Any]:
-        """Invoke the LLM and return (markdown_content, raw_ai_message).
-
-        All providers use plain ainvoke() — no structured output.
-        """
+        """Invoke the LLM and return (markdown_content, raw_ai_message)."""
         raw_message = await self._llm.ainvoke(messages)
         markdown = self._extract_markdown(raw_message.content)
         return markdown, raw_message
@@ -98,15 +100,12 @@ class SingleAgent(BaseAgent):
         """
         content = content.strip()
 
-        # Handle ```markdown fence (common from Ollama)
         if content.startswith("```markdown"):
             inner = content[len("```markdown"):]
             if "```" in inner:
                 inner = inner[:inner.rfind("```")]
             return inner.strip()
 
-        # Handle generic ``` fence wrapping the entire response
-        # Only strip when count == 2 to avoid cutting internal Mermaid fences
         if content.startswith("```") and content.endswith("```") and content.count("```") == 2:
             inner = content[3:content.rfind("```")]
             return inner.strip()
@@ -128,15 +127,3 @@ class SingleAgent(BaseAgent):
 
         logger.warning("Could not extract token usage from LLM response")
         return 0, 0
-
-    def _get_model_name(self) -> str:
-        """Return the active model name based on current provider settings."""
-        match settings.llm_provider:
-            case LLMProvider.OPENAI:
-                return settings.openai_model
-            case LLMProvider.ANTHROPIC:
-                return settings.anthropic_model
-            case LLMProvider.OLLAMA:
-                return settings.ollama_model
-            case _:
-                return "unknown"

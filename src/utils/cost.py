@@ -1,6 +1,6 @@
 """Cost estimation for LLM API calls.
 
-Prices last verified: 2025-03.
+Prices last verified: 2026-03.
 """
 
 from __future__ import annotations
@@ -8,15 +8,11 @@ from __future__ import annotations
 # (provider, model) -> (input_price_per_1k_tokens, output_price_per_1k_tokens)
 COST_PER_1K_TOKENS: dict[tuple[str, str], tuple[float, float]] = {
     # OpenAI
-    ("openai", "gpt-4o"): (0.0025, 0.010),
-    ("openai", "gpt-4o-mini"): (0.00015, 0.0006),
-    ("openai", "gpt-4.1"): (0.002, 0.008),
-    ("openai", "gpt-4.1-mini"): (0.0004, 0.0016),
-    ("openai", "gpt-4.1-nano"): (0.0001, 0.0004),
+    ("openai", "gpt-4o-mini"): (0.00015, 0.0006),  # $0.15/1M in, $0.60/1M out
+    ("openai", "gpt-5.2"): (0.00175, 0.014),  # $1.75/1M in, $14.00/1M out
     # Anthropic
-    ("anthropic", "claude-sonnet-4-20250514"): (0.003, 0.015),
-    ("anthropic", "claude-opus-4-20250514"): (0.015, 0.075),
-    ("anthropic", "claude-haiku-4-20250414"): (0.0008, 0.004),
+    ("anthropic", "claude-haiku-4-5-20251001"): (0.001, 0.005),  # $1/MTok in, $5/MTok out
+    ("anthropic", "claude-sonnet-4-6"): (0.003, 0.015),  # $3/MTok in, $15/MTok out
     # Ollama (local, free)
     ("ollama", "*"): (0.0, 0.0),
 }

@@ -9,6 +9,14 @@ import streamlit as st
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
+SUPPORTED_FILE_TYPES = [
+    "txt", "md", "csv", "json", "xml", "yaml", "yml",
+    "py", "js", "ts", "java", "go", "rs", "html", "css",
+    "toml", "ini", "sh", "sql",
+    "pdf",
+    "png", "jpg", "jpeg", "gif", "webp",
+]
+
 st.set_page_config(
     page_title="Architecture Agent",
     layout="wide",
@@ -21,14 +29,45 @@ st.caption("Single-agent baseline for automated software architecture design")
 
 with st.sidebar:
     st.header("Configuration")
+
+    # Health check
     try:
         health = httpx.get(f"{API_BASE_URL}/health", timeout=5).json()
         st.success("API connected")
         st.metric("Environment", health["environment"])
-        st.metric("LLM Provider", health["llm_provider"])
     except httpx.ConnectError:
         st.error(f"Cannot connect to API at {API_BASE_URL}")
         health = None
+
+    # Model selector
+    available_models = []
+    selected_provider = None
+    selected_model = None
+    model_supports_vision = False
+
+    if health:
+        try:
+            available_models = httpx.get(f"{API_BASE_URL}/models", timeout=5).json()
+        except httpx.ConnectError:
+            st.warning("Could not fetch model list")
+
+    if available_models:
+        model_labels = [m["label"] for m in available_models]
+        selected_idx = st.selectbox(
+            "Model",
+            range(len(model_labels)),
+            format_func=lambda i: model_labels[i],
+        )
+        selected = available_models[selected_idx]
+        selected_provider = selected["provider"]
+        selected_model = selected["model_id"]
+        model_supports_vision = selected["supports_vision"]
+
+        tier_colors = {"economic": "blue", "performance": "green", "local": "orange"}
+        tier = selected["tier"]
+        st.caption(f":{tier_colors.get(tier, 'gray')}[{tier.upper()}] — {selected_provider}")
+    else:
+        st.warning("No models available. Check API keys in .env")
 
 # ── Input ────────────────────────────────────────────────────────────────────
 
@@ -42,29 +81,43 @@ project_description = st.text_area(
     ),
 )
 
-with st.expander("Additional documents (optional)"):
-    extra_docs = st.text_area(
-        "Paste additional requirements, specs, or context here",
-        height=150,
-        label_visibility="collapsed",
-    )
+# File uploader (disabled for non-vision models like Ollama)
+uploaded_files = []
+if selected_provider == "ollama":
+    st.info("La subida de archivos no esta disponible con el modelo local.")
+elif selected_provider:
+    uploaded_files = st.file_uploader(
+        "Adjuntar archivos (arrastra o haz click)",
+        accept_multiple_files=True,
+        type=SUPPORTED_FILE_TYPES,
+        help="Texto, PDFs e imagenes. Los archivos se envian al modelo como contexto adicional.",
+    ) or []
 
-analyze_disabled = not project_description or health is None
+analyze_disabled = not project_description or health is None or not selected_model
 analyze = st.button(
     "Analyze", type="primary", disabled=analyze_disabled, use_container_width=True
 )
 
 # ── Analysis ─────────────────────────────────────────────────────────────────
 
-if analyze and project_description:
-    documents = [extra_docs] if extra_docs else []
-    payload = {"description": project_description, "documents": documents}
+if analyze and project_description and selected_provider and selected_model:
+    # Build multipart form data
+    form_data = {
+        "description": project_description,
+        "provider": selected_provider,
+        "model": selected_model,
+    }
+
+    files_to_upload = []
+    for f in uploaded_files:
+        files_to_upload.append(("files", (f.name, f.read(), f.type)))
 
     with st.spinner("Analyzing project... This may take a minute."):
         try:
             response = httpx.post(
                 f"{API_BASE_URL}/analyze/baseline",
-                json=payload,
+                data=form_data,
+                files=files_to_upload if files_to_upload else None,
                 timeout=300,
             )
             response.raise_for_status()

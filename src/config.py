@@ -1,8 +1,8 @@
-"""Application configuration with support for dev/prod environments.
+"""Application configuration with support for local/production environments.
 
 Usage:
     from src.config import settings
-    print(settings.llm_provider)  # "ollama" in dev, "openai" in prod
+    print(settings.llm_provider)  # "ollama" in local, "openai" in prod
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Environment(str, Enum):
-    DEVELOPMENT = "development"
+    LOCAL = "local"
     PRODUCTION = "production"
 
 
@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     )
 
     # General
-    environment: Environment = Environment.DEVELOPMENT
+    environment: Environment = Environment.LOCAL
 
     # LLM
     llm_provider: LLMProvider = LLMProvider.OLLAMA
@@ -79,8 +79,8 @@ class Settings(BaseSettings):
     langsmith_project: str = "TFG"
 
     @property
-    def is_dev(self) -> bool:
-        return self.environment == Environment.DEVELOPMENT
+    def is_local(self) -> bool:
+        return self.environment == Environment.LOCAL
 
     @property
     def is_prod(self) -> bool:

@@ -12,6 +12,9 @@ across diverse domains (web, mobile, distributed, embedded, data-intensive). \
 Your task is to analyze a software project description and produce a comprehensive \
 architecture analysis report.
 
+You may receive images as part of the project context (diagrams, screenshots, \
+mockups, etc.). Analyze them as supplementary documentation when present.
+
 Respond ONLY with a Markdown document. Do NOT wrap it in a code block. \
 Do NOT add any preamble or explanation before or after the document. \
 Start directly with the first heading.
@@ -148,15 +151,36 @@ Analyze the following software project and produce a complete architecture repor
 """
 
 
-def format_user_message(project_description: str, documents: list[str] | None = None) -> str:
-    """Format the user message from project input."""
+def format_user_message(
+    project_description: str,
+    documents: list[str] | None = None,
+    images: list[dict] | None = None,
+) -> str | list[dict]:
+    """Format the user message from project input.
+
+    Returns a plain string when there are no images.
+    Returns a list of content blocks (text + image_url) when images are present,
+    which LangChain's HumanMessage accepts for multimodal models.
+    """
     if documents:
         docs_text = "\n\n---\n\n".join(documents)
         documents_section = f"## Additional Documents\n{docs_text}"
     else:
         documents_section = ""
 
-    return SINGLE_AGENT_USER_TEMPLATE.format(
+    text = SINGLE_AGENT_USER_TEMPLATE.format(
         project_description=project_description,
         documents_section=documents_section,
     )
+
+    if not images:
+        return text
+
+    blocks: list[dict] = [{"type": "text", "text": text}]
+    for img in images:
+        data_url = f"data:{img['mime_type']};base64,{img['base64_data']}"
+        blocks.append({
+            "type": "image_url",
+            "image_url": {"url": data_url},
+        })
+    return blocks

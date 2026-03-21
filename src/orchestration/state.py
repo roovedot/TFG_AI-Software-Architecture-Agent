@@ -17,6 +17,7 @@ class PipelineState(TypedDict, total=False):
     # User input
     project_description: str
     user_documents: list[str]
+    user_images: list[dict]
     session_id: str
 
     # Clarification phase

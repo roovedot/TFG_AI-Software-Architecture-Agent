@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     embedding_provider: EmbeddingProvider = EmbeddingProvider.OPENAI
     embedding_model: str = "text-embedding-3-small"
 
+    # MongoDB
+    mongodb_url: str = "mongodb://mongodb:27017"
+    mongodb_database: str = "tfg_architect"
+
     # Qdrant
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333

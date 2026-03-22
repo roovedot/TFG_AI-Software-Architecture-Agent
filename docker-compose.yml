@@ -13,6 +13,7 @@ services:
       - ./data:/app/data
     depends_on:
       - qdrant
+      - mongodb
     restart: unless-stopped
 
   frontend:
@@ -35,6 +36,14 @@ services:
       - "6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
     restart: unless-stopped
 
   # ─── Local only: Ollama para LLM local ───────────────────────────────────
@@ -60,4 +69,5 @@ services:
 
 volumes:
   qdrant_data:
+  mongodb_data:
   ollama_data:

@@ -11,6 +11,7 @@ sudo docker compose --profile local down
 sudo docker compose --profile local logs -f
 sudo docker compose --profile local logs -f api
 sudo docker compose --profile local logs -f ollama
+sudo docker compose --profile local logs -f mongodb
 
 
 ## Entorno PROD (OpenAI / Anthropic, sin Ollama)
@@ -38,3 +39,36 @@ sudo docker compose --profile local exec ollama ollama cp "hf.co/bartowski/Llama
 
 # Probar modelo interactivo
 sudo docker compose --profile local exec ollama ollama run llama3.2:3b "hola"
+
+
+## MongoDB
+
+# Entrar al shell
+sudo docker compose exec mongodb mongosh tfg_architect
+
+# Ver proyectos
+sudo docker compose exec mongodb mongosh tfg_architect --eval "db.projects.find().pretty()"
+
+# Contar proyectos
+sudo docker compose exec mongodb mongosh tfg_architect --eval "db.projects.countDocuments()"
+
+# Ver archivos en GridFS
+sudo docker compose exec mongodb mongosh tfg_architect --eval "db.fs.files.find().pretty()"
+
+
+## API (curl)
+
+# Health check
+curl localhost:8000/health
+
+# Modelos disponibles
+curl localhost:8000/models
+
+# Listar proyectos
+curl localhost:8000/projects
+
+# Ver detalle de un proyecto
+curl localhost:8000/projects/{PROJECT_ID}
+
+# Eliminar proyecto
+curl -X DELETE localhost:8000/projects/{PROJECT_ID}

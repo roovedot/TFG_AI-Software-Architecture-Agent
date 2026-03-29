@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import structlog
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
@@ -9,7 +11,6 @@ from fastapi.responses import StreamingResponse
 from src.config import settings
 from src.db import repositories as repo
 from src.llm.models import get_available_models
-from src.models.metrics import LLMMetrics
 from src.models.project import AnalyzeResponse, ProjectDetail, ProjectRating, ProjectSummary
 from src.orchestration.single_graph import build_single_agent_graph
 from src.utils.file_processing import process_uploaded_file
@@ -50,55 +51,16 @@ async def list_models():
 # ── Analysis ─────────────────────────────────────────────────────────────────
 
 
-@router.post("/analyze/baseline", response_model=AnalyzeResponse)
-async def analyze_baseline(
-    description: str = Form(..., min_length=10),
-    provider: str = Form(...),
-    model: str = Form(...),
-    files: list[UploadFile] = File(default=[]),
-) -> AnalyzeResponse:
-    """Run the single-agent baseline analysis and persist the project."""
+async def _run_analysis(
+    project_id: str,
+    provider: str,
+    model: str,
+    description: str,
+    documents: list[str],
+    images: list[dict],
+) -> None:
+    """Background task: run LLM analysis and update the project with results."""
     try:
-        # Validate model selection
-        available = get_available_models()
-        valid = any(m.model_id == model and m.provider == provider for m in available)
-        if not valid:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Model {provider}/{model} is not available. "
-                f"Check API keys and environment.",
-            )
-
-        # Reject files for non-vision models (Ollama)
-        if provider == "ollama" and files:
-            raise HTTPException(
-                status_code=400,
-                detail="File upload is not supported with local Ollama models.",
-            )
-
-        # Read raw bytes for GridFS storage before processing
-        files_data: list[dict] = []
-        for f in files:
-            content = await f.read()
-            files_data.append({
-                "name": f.filename or "unknown",
-                "content": content,
-                "content_type": f.content_type or "application/octet-stream",
-                "size": len(content),
-            })
-            await f.seek(0)  # Reset for process_uploaded_file
-
-        # Process uploaded files for LLM
-        documents: list[str] = []
-        images: list[dict] = []
-        for f in files:
-            text, img = await process_uploaded_file(f)
-            if text:
-                documents.append(text)
-            if img:
-                images.append(img)
-
-        # Build and invoke graph
         graph = build_single_agent_graph(provider=provider, model=model)
         initial_state = {
             "project_description": description,
@@ -106,30 +68,82 @@ async def analyze_baseline(
             "user_images": images,
         }
         result = await graph.ainvoke(initial_state)
-
-        metrics = result["metrics"]
-        markdown_content = result["markdown_content"]
-
-        # Persist project to MongoDB
-        project_id = await repo.create_project(
-            description=description,
-            provider=provider,
-            model=model,
-            files_data=files_data,
-            markdown_content=markdown_content,
-            metrics=metrics,
+        await repo.complete_project(
+            project_id,
+            markdown_content=result["markdown_content"],
+            metrics=result["metrics"],
         )
-
-        return AnalyzeResponse(
-            project_id=project_id,
-            markdown_content=markdown_content,
-            metrics=LLMMetrics.model_validate(metrics),
-        )
-    except HTTPException:
-        raise
+        logger.info("Analysis completed", project_id=project_id)
     except Exception as e:
-        logger.error("Baseline analysis failed", error=str(e))
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {e}") from e
+        logger.error("Analysis failed", project_id=project_id, error=str(e))
+        await repo.fail_project(project_id, error_message=str(e))
+
+
+@router.post("/analyze/baseline", response_model=AnalyzeResponse)
+async def analyze_baseline(
+    description: str = Form(..., min_length=10),
+    provider: str = Form(...),
+    model: str = Form(...),
+    files: list[UploadFile] = File(default=[]),
+) -> AnalyzeResponse:
+    """Start a baseline analysis. Returns immediately with a project ID.
+
+    The analysis runs in the background. Poll GET /projects/{id} to check status.
+    """
+    # Validate model selection
+    available = get_available_models()
+    valid = any(m.model_id == model and m.provider == provider for m in available)
+    if not valid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model {provider}/{model} is not available. "
+            f"Check API keys and environment.",
+        )
+
+    # Reject files for non-vision models (Ollama)
+    if provider == "ollama" and files:
+        raise HTTPException(
+            status_code=400,
+            detail="File upload is not supported with local Ollama models.",
+        )
+
+    # Read raw bytes for GridFS storage before processing
+    files_data: list[dict] = []
+    for f in files:
+        content = await f.read()
+        files_data.append({
+            "name": f.filename or "unknown",
+            "content": content,
+            "content_type": f.content_type or "application/octet-stream",
+            "size": len(content),
+        })
+        await f.seek(0)  # Reset for process_uploaded_file
+
+    # Process uploaded files for LLM (text extraction, image encoding)
+    documents: list[str] = []
+    images: list[dict] = []
+    for f in files:
+        text, img = await process_uploaded_file(f)
+        if text:
+            documents.append(text)
+        if img:
+            images.append(img)
+
+    # Create project immediately with status "processing"
+    project_id = await repo.create_project(
+        description=description,
+        provider=provider,
+        model=model,
+        files_data=files_data,
+        status="processing",
+    )
+
+    # Fire off analysis in background
+    asyncio.create_task(
+        _run_analysis(project_id, provider, model, description, documents, images)
+    )
+
+    return AnalyzeResponse(project_id=project_id, status="processing")
 
 
 # ── Projects ─────────────────────────────────────────────────────────────────

@@ -39,6 +39,7 @@ class ProjectSummary(BaseModel):
     description_preview: str
     provider: str
     model: str
+    status: str  # "processing" | "completed" | "error"
     has_rating: bool
 
 
@@ -50,15 +51,16 @@ class ProjectDetail(BaseModel):
     description: str
     provider: str
     model: str
+    status: str  # "processing" | "completed" | "error"
+    error_message: str | None = None
     files: list[FileReference]
-    markdown_content: str
-    metrics: LLMMetrics
-    ratings: ProjectRating | None
+    markdown_content: str | None = None
+    metrics: LLMMetrics | None = None
+    ratings: ProjectRating | None = None
 
 
 class AnalyzeResponse(BaseModel):
-    """Response from the analyze endpoint, includes the persisted project ID."""
+    """Response from the analyze endpoint — returns immediately with project ID."""
 
     project_id: str
-    markdown_content: str
-    metrics: LLMMetrics
+    status: str = "processing"

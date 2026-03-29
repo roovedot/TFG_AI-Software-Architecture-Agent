@@ -29,6 +29,18 @@ RATING_CRITERIA = [
     ("actionability", "Plan de desarrollo accionable"),
 ]
 
+PROGRESS_MESSAGES = [
+    "Procesando archivos adjuntos...",
+    "Construyendo el prompt para el modelo...",
+    "Enviando peticion al LLM...",
+    "El modelo esta analizando tu proyecto...",
+    "Generando recomendaciones de arquitectura...",
+    "Evaluando stack tecnologico...",
+    "Identificando riesgos y mitigaciones...",
+    "Redactando el informe final...",
+    "Casi listo, finalizando el documento...",
+]
+
 st.set_page_config(
     page_title="Architecture Agent",
     layout="wide",
@@ -40,8 +52,8 @@ if "view" not in st.session_state:
     st.session_state["view"] = "analyze"
 if "selected_project_id" not in st.session_state:
     st.session_state["selected_project_id"] = None
-if "last_result" not in st.session_state:
-    st.session_state["last_result"] = None
+if "processing_start_time" not in st.session_state:
+    st.session_state["processing_start_time"] = None
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 
@@ -95,7 +107,7 @@ with st.sidebar:
     if st.button("Nuevo analisis", use_container_width=True):
         st.session_state["view"] = "analyze"
         st.session_state["selected_project_id"] = None
-        st.session_state["last_result"] = None
+        st.session_state["processing_start_time"] = None
         st.rerun()
 
     projects_list = []
@@ -108,15 +120,33 @@ with st.sidebar:
     for p in projects_list:
         pid = p["id"]
         date_str = p["created_at"][:10] if p["created_at"] else ""
-        rating_icon = " *" if p["has_rating"] else ""
+        status = p.get("status", "completed")
+
+        # Status indicators
+        if status == "processing":
+            status_icon = " ..."
+        elif status == "error":
+            status_icon = " ERR"
+        elif p["has_rating"]:
+            status_icon = " *"
+        else:
+            status_icon = ""
 
         col_btn, col_del = st.columns([5, 1])
         with col_btn:
-            label = f"{p['description_preview'][:50]}\n{p['model']} | {date_str}{rating_icon}"
+            label = (
+                f"{p['description_preview'][:50]}\n"
+                f"{p['model']} | {date_str}{status_icon}"
+            )
             if st.button(label, key=f"proj_{pid}", use_container_width=True):
                 st.session_state["view"] = "detail"
                 st.session_state["selected_project_id"] = pid
-                st.session_state["last_result"] = None
+                if status == "processing":
+                    st.session_state["processing_start_time"] = (
+                        st.session_state.get("processing_start_time") or time.time()
+                    )
+                else:
+                    st.session_state["processing_start_time"] = None
                 st.rerun()
         with col_del:
             if st.button("x", key=f"del_{pid}"):
@@ -124,6 +154,10 @@ with st.sidebar:
                     httpx.delete(f"{API_BASE_URL}/projects/{pid}", timeout=10)
                 except httpx.ConnectError:
                     st.error("Cannot connect to API")
+                # If we deleted the project we're viewing, go back to analyze
+                if st.session_state.get("selected_project_id") == pid:
+                    st.session_state["view"] = "analyze"
+                    st.session_state["selected_project_id"] = None
                 st.rerun()
 
 
@@ -183,6 +217,25 @@ def render_rating_form(project_id: str, existing_ratings: dict | None) -> None:
             st.error("Cannot connect to API")
 
 
+def render_processing_view(project: dict) -> None:
+    """Render the progress UI for a project that is still being analyzed."""
+    elapsed = 0.0
+    start = st.session_state.get("processing_start_time")
+    if start:
+        elapsed = time.time() - start
+
+    msg_idx = min(int(elapsed // 7), len(PROGRESS_MESSAGES) - 1)
+
+    with st.status("Analizando proyecto...", expanded=True, state="running"):
+        st.info(
+            "El analisis puede tardar entre 15 segundos y 2 minutos dependiendo del modelo. "
+            "Puedes navegar a otros proyectos del historial mientras tanto — "
+            "el resultado aparecera automaticamente cuando termine."
+        )
+        st.metric("Tiempo transcurrido", f"{elapsed:.0f}s")
+        st.caption(PROGRESS_MESSAGES[msg_idx])
+
+
 # ── Main area ────────────────────────────────────────────────────────────────
 
 if st.session_state["view"] == "detail":
@@ -203,6 +256,8 @@ if st.session_state["view"] == "detail":
         st.error(f"Cannot connect to API at {API_BASE_URL}")
         st.stop()
 
+    status = project.get("status", "completed")
+
     st.title("Architecture Agent — Baseline")
     st.caption("Single-agent baseline for automated software architecture design")
 
@@ -215,18 +270,49 @@ if st.session_state["view"] == "detail":
         st.subheader("Archivos adjuntos")
         for f in project["files"]:
             size_kb = f["size"] / 1024
-            st.markdown(
-                f"- **{f['name']}** ({size_kb:.1f} KB) — "
-                f"[Descargar]({API_BASE_URL}/projects/{project_id}/files/{f['file_id']})"
-            )
+            col_info, col_dl = st.columns([4, 1])
+            with col_info:
+                st.markdown(f"**{f['name']}** ({size_kb:.1f} KB)")
+            with col_dl:
+                try:
+                    file_resp = httpx.get(
+                        f"{API_BASE_URL}/projects/{project_id}/files/{f['file_id']}",
+                        timeout=30,
+                    )
+                    file_resp.raise_for_status()
+                    st.download_button(
+                        label="Descargar",
+                        data=file_resp.content,
+                        file_name=f["name"],
+                        mime=f["content_type"],
+                        key=f"dl_file_{f['file_id']}",
+                    )
+                except Exception:
+                    st.caption("Error al cargar")
 
-    # Metrics & report
-    st.divider()
-    render_metrics(project["metrics"])
-    render_report(project["markdown_content"])
+    # ── Status-dependent rendering ───────────────────────────────────────
 
-    # Rating form
-    render_rating_form(project_id, project.get("ratings"))
+    if status == "processing":
+        st.divider()
+        render_processing_view(project)
+        # Auto-refresh every 3 seconds to check if analysis completed
+        time.sleep(3)
+        st.rerun()
+
+    elif status == "error":
+        st.divider()
+        st.error(f"El analisis ha fallado: {project.get('error_message', 'Error desconocido')}")
+
+    elif status == "completed":
+        st.session_state["processing_start_time"] = None
+        # Metrics & report
+        if project.get("metrics"):
+            st.divider()
+            render_metrics(project["metrics"])
+        if project.get("markdown_content"):
+            render_report(project["markdown_content"])
+        # Rating form
+        render_rating_form(project_id, project.get("ratings"))
 
 else:
     # ── Analyze view: new analysis ───────────────────────────────────────
@@ -260,7 +346,7 @@ else:
         "Analyze", type="primary", disabled=analyze_disabled, use_container_width=True
     )
 
-    # ── Run analysis ─────────────────────────────────────────────────────
+    # ── Submit analysis ──────────────────────────────────────────────────
 
     if analyze and project_description and selected_provider and selected_model:
         form_data = {
@@ -273,41 +359,22 @@ else:
         for f in uploaded_files:
             files_to_upload.append(("files", (f.name, f.read(), f.type)))
 
-        with st.spinner("Analyzing project... This may take a minute."):
-            try:
-                response = httpx.post(
-                    f"{API_BASE_URL}/analyze/baseline",
-                    data=form_data,
-                    files=files_to_upload if files_to_upload else None,
-                    timeout=300,
-                )
-                response.raise_for_status()
-                data = response.json()
-                st.session_state["last_result"] = data
-            except httpx.TimeoutException:
-                st.error(
-                    "Analysis timed out. Try a shorter description or check LLM availability."
-                )
-                st.stop()
-            except httpx.HTTPStatusError as e:
-                st.error(f"API error: {e.response.text}")
-                st.stop()
-            except httpx.ConnectError:
-                st.error(f"Cannot connect to API at {API_BASE_URL}")
-                st.stop()
+        try:
+            response = httpx.post(
+                f"{API_BASE_URL}/analyze/baseline",
+                data=form_data,
+                files=files_to_upload if files_to_upload else None,
+                timeout=30,  # Just creating the project, should be fast
+            )
+            response.raise_for_status()
+            data = response.json()
 
-    # ── Results (persisted in session_state) ──────────────────────────────
-
-    if st.session_state.get("last_result"):
-        data = st.session_state["last_result"]
-        markdown_content = data["markdown_content"]
-        metrics = data["metrics"]
-        project_id = data.get("project_id")
-
-        st.divider()
-        render_metrics(metrics)
-        render_report(markdown_content)
-
-        # Rating form (if project was saved)
-        if project_id:
-            render_rating_form(project_id, None)
+            # Navigate to detail view — polling will handle the rest
+            st.session_state["view"] = "detail"
+            st.session_state["selected_project_id"] = data["project_id"]
+            st.session_state["processing_start_time"] = time.time()
+            st.rerun()
+        except httpx.HTTPStatusError as e:
+            st.error(f"API error: {e.response.text}")
+        except httpx.ConnectError:
+            st.error(f"Cannot connect to API at {API_BASE_URL}")

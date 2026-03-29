@@ -14,13 +14,15 @@ async def create_project(
     provider: str,
     model: str,
     files_data: list[dict],
-    markdown_content: str,
-    metrics: dict,
+    status: str = "processing",
+    markdown_content: str | None = None,
+    metrics: dict | None = None,
 ) -> str:
     """Create a project with its files stored in GridFS.
 
     Args:
         files_data: list of {"name": str, "content": bytes, "content_type": str, "size": int}
+        status: "processing" (default), "completed", or "error"
     """
     db = get_database()
     bucket = get_gridfs_bucket()
@@ -45,6 +47,8 @@ async def create_project(
         "description": description,
         "provider": provider,
         "model": model,
+        "status": status,
+        "error_message": None,
         "files": file_refs,
         "markdown_content": markdown_content,
         "metrics": metrics,
@@ -52,6 +56,34 @@ async def create_project(
     }
     result = await db.projects.insert_one(doc)
     return str(result.inserted_id)
+
+
+async def complete_project(
+    project_id: str, markdown_content: str, metrics: dict
+) -> bool:
+    """Mark a project as completed with its results."""
+    db = get_database()
+    result = await db.projects.update_one(
+        {"_id": ObjectId(project_id)},
+        {
+            "$set": {
+                "status": "completed",
+                "markdown_content": markdown_content,
+                "metrics": metrics,
+            }
+        },
+    )
+    return result.matched_count > 0
+
+
+async def fail_project(project_id: str, error_message: str) -> bool:
+    """Mark a project as failed with an error message."""
+    db = get_database()
+    result = await db.projects.update_one(
+        {"_id": ObjectId(project_id)},
+        {"$set": {"status": "error", "error_message": error_message}},
+    )
+    return result.matched_count > 0
 
 
 async def list_projects() -> list[dict]:
@@ -65,6 +97,7 @@ async def list_projects() -> list[dict]:
             "description": 1,
             "provider": 1,
             "model": 1,
+            "status": 1,
             "ratings": 1,
         },
     ).sort("created_at", -1)
@@ -78,6 +111,7 @@ async def list_projects() -> list[dict]:
             "description_preview": desc[:80] + "..." if len(desc) > 80 else desc,
             "provider": doc["provider"],
             "model": doc["model"],
+            "status": doc.get("status", "completed"),
             "has_rating": doc.get("ratings") is not None,
         })
     return projects
@@ -90,6 +124,9 @@ async def get_project(project_id: str) -> dict | None:
     if doc is None:
         return None
     doc["id"] = str(doc.pop("_id"))
+    # Ensure status field exists for older documents
+    if "status" not in doc:
+        doc["status"] = "completed"
     return doc
 
 

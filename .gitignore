@@ -52,6 +52,9 @@ docker-data/
 # LangSmith
 .langsmith/
 
+.claude/
+
 # Docs
-docs/
+docs/*
+!docs/MANUAL_USO_MONOAGENTE.md
 sucio.txt

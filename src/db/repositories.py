@@ -53,9 +53,164 @@ async def create_project(
         "markdown_content": markdown_content,
         "metrics": metrics,
         "ratings": None,
+        "pipeline_type": "baseline",
     }
     result = await db.projects.insert_one(doc)
     return str(result.inserted_id)
+
+
+async def create_multiagent_project(
+    description: str,
+    agent_configs: dict,
+    files_data: list[dict],
+    processed_documents: list[str],
+    processed_images: list[dict],
+) -> str:
+    """Create a multiagent project document.
+
+    Args:
+        agent_configs: {"planner": {"provider", "model"}, "requirements": ..., "designer": ..., "validator": ...}
+        processed_documents: pre-extracted text from user documents (to avoid re-processing on resume)
+        processed_images: pre-encoded image dicts for multimodal input
+    """
+    db = get_database()
+    bucket = get_gridfs_bucket()
+
+    file_refs = []
+    for f in files_data:
+        file_id = await bucket.upload_from_stream(
+            f["name"],
+            f["content"],
+            metadata={"content_type": f["content_type"]},
+        )
+        file_refs.append({
+            "file_id": str(file_id),
+            "name": f["name"],
+            "size": f["size"],
+            "content_type": f["content_type"],
+        })
+
+    # Derive top-level provider/model for list compatibility: use planner config.
+    planner_cfg = agent_configs["planner"]
+
+    doc = {
+        "created_at": datetime.now(timezone.utc),
+        "description": description,
+        "provider": planner_cfg["provider"],
+        "model": planner_cfg["model"],
+        "pipeline_type": "multiagent",
+        "status": "processing",
+        "current_step": "planner",
+        "agent_configs": agent_configs,
+        "error_message": None,
+        "files": file_refs,
+        "processed_documents": processed_documents,
+        "processed_images": processed_images,
+        "clarification_questions": None,
+        "clarification_answers": None,
+        "analysis_plan": None,
+        "agent_outputs": {},
+        "agent_metrics": [],
+        "markdown_content": None,
+        "metrics": None,
+        "ratings": None,
+    }
+    result = await db.projects.insert_one(doc)
+    return str(result.inserted_id)
+
+
+async def update_current_step(project_id: str, step: str) -> bool:
+    """Update the current_step field to reflect multiagent pipeline progress."""
+    db = get_database()
+    result = await db.projects.update_one(
+        {"_id": ObjectId(project_id)},
+        {"$set": {"current_step": step}},
+    )
+    return result.matched_count > 0
+
+
+async def set_clarification_questions(
+    project_id: str,
+    questions: list[dict],
+    analysis_plan: dict | None = None,
+) -> bool:
+    """Persist clarification questions (and the plan) and set status to waiting_clarification."""
+    db = get_database()
+    update_fields: dict = {
+        "status": "waiting_clarification",
+        "clarification_questions": questions,
+        "current_step": "waiting_clarification",
+    }
+    if analysis_plan is not None:
+        update_fields["analysis_plan"] = analysis_plan
+    result = await db.projects.update_one(
+        {"_id": ObjectId(project_id)},
+        {"$set": update_fields},
+    )
+    return result.matched_count > 0
+
+
+async def submit_clarification_answers(
+    project_id: str, answers: dict[str, str]
+) -> bool:
+    """Record user's answers and flip status back to processing."""
+    db = get_database()
+    result = await db.projects.update_one(
+        {"_id": ObjectId(project_id)},
+        {
+            "$set": {
+                "clarification_answers": answers,
+                "status": "processing",
+                "current_step": "requirements",
+            }
+        },
+    )
+    return result.matched_count > 0
+
+
+async def save_agent_output(
+    project_id: str,
+    agent_name: str,
+    content: str,
+) -> bool:
+    """Save an agent's raw output to the project document."""
+    db = get_database()
+    result = await db.projects.update_one(
+        {"_id": ObjectId(project_id)},
+        {"$set": {f"agent_outputs.{agent_name}": content}},
+    )
+    return result.matched_count > 0
+
+
+async def save_agent_metrics(project_id: str, metrics_list: list[dict]) -> bool:
+    """Overwrite the full agent_metrics array (avoids duplication from streaming)."""
+    db = get_database()
+    result = await db.projects.update_one(
+        {"_id": ObjectId(project_id)},
+        {"$set": {"agent_metrics": metrics_list}},
+    )
+    return result.matched_count > 0
+
+
+async def complete_multiagent_project(
+    project_id: str,
+    markdown_content: str,
+    aggregated_metrics: dict,
+) -> bool:
+    """Mark a multiagent project as completed with final markdown and aggregated metrics."""
+    db = get_database()
+    result = await db.projects.update_one(
+        {"_id": ObjectId(project_id)},
+        {
+            "$set": {
+                "status": "completed",
+                "current_step": "completed",
+                "markdown_content": markdown_content,
+                "metrics": aggregated_metrics,
+            }
+        },
+    )
+    return result.matched_count > 0
 
 
 async def complete_project(
@@ -99,6 +254,7 @@ async def list_projects() -> list[dict]:
             "model": 1,
             "status": 1,
             "ratings": 1,
+            "pipeline_type": 1,
         },
     ).sort("created_at", -1)
 
@@ -113,6 +269,7 @@ async def list_projects() -> list[dict]:
             "model": doc["model"],
             "status": doc.get("status", "completed"),
             "has_rating": doc.get("ratings") is not None,
+            "pipeline_type": doc.get("pipeline_type", "baseline"),
         })
     return projects
 

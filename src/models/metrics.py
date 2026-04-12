@@ -17,6 +17,9 @@ class LLMMetrics(BaseModel):
     estimated_cost_usd: float = Field(
         ..., description="Estimated cost in USD. 0.0 for local models."
     )
+    agent: str | None = Field(
+        None, description="Agent name (multiagent pipeline only)."
+    )
 
 
 class BaselineResult(BaseModel):
@@ -24,3 +27,13 @@ class BaselineResult(BaseModel):
 
     markdown_content: str
     metrics: LLMMetrics
+
+
+class MultiagentResult(BaseModel):
+    """Complete result from the multiagent pipeline analysis."""
+
+    markdown_content: str
+    aggregated_metrics: LLMMetrics
+    agent_metrics: list[LLMMetrics] = Field(default_factory=list)
+    agent_outputs: dict[str, str] = Field(default_factory=dict)
+    revision_count: int = 0

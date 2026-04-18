@@ -12,8 +12,8 @@ services:
       - ./src:/app/src
       - ./data:/app/data
     depends_on:
-      qdrant:
-        condition: service_healthy
+      - qdrant
+      - mongodb
     restart: unless-stopped
 
   frontend:
@@ -36,24 +36,38 @@ services:
       - "6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6333/readyz"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
     restart: unless-stopped
 
-  # ─── Development only: Ollama para LLM local ─────────────────────────────
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+
+  # ─── Local only: Ollama para LLM local ───────────────────────────────────
 
   ollama:
     image: ollama/ollama:latest
-    profiles: ["dev"]
+    profiles: ["local"]
     ports:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_FLASH_ATTENTION=true
+      - OLLAMA_KV_CACHE_TYPE=q8_0
     restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
 volumes:
   qdrant_data:
+  mongodb_data:
   ollama_data:

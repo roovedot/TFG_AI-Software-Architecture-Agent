@@ -34,6 +34,13 @@ dependencies = [
     "langsmith>=0.1",
     "structlog>=24.4",
 
+    # Database
+    "motor>=3.6",
+
+    # File processing
+    "pymupdf>=1.24",
+    "python-multipart>=0.0.9",
+
     # Utilities
     "python-dotenv>=1.0",
     "httpx>=0.28",
@@ -73,6 +80,9 @@ known-first-party = ["src"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-v --tb=short"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
 
 [build-system]
 requires = ["hatchling"]

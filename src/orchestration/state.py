@@ -17,10 +17,16 @@ class PipelineState(TypedDict, total=False):
     # User input
     project_description: str
     user_documents: list[str]
+    user_images: list[dict]
     session_id: str
 
+    # Multiagent runtime context
+    project_id: str
+    current_step: str  # "planner" | "requirements" | "designer" | "validator" | "revision_1" | "revision_2"
+    agent_configs: dict[str, dict[str, str]]  # {"planner": {"provider": ..., "model": ...}, ...}
+
     # Clarification phase
-    clarification_questions: list[str]
+    clarification_questions: list[dict]  # [{"question": str, "options": list[str]}]
     clarification_answers: dict[str, str]
     clarification_complete: bool
 
@@ -36,7 +42,19 @@ class PipelineState(TypedDict, total=False):
 
     # Validator & Aggregator output
     validation_results: dict[str, Any]
-    final_report: dict[str, Any]
+    markdown_content: str
+
+    # Feedback loop control
+    revision_count: int
+    revision_target: str  # "" | "requirements" | "designer"
+    revision_feedback: str
+
+    # Per-agent outputs and metrics (for frontend display)
+    agent_outputs: dict[str, str]  # agent_name -> raw output
+    agent_metrics: list[dict]  # list of per-agent LLMMetrics dicts
+
+    # Aggregated metrics (baseline compatibility)
+    metrics: dict[str, Any]
 
     # Metadata
     errors: list[str]

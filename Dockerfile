@@ -8,13 +8,12 @@ RUN apt-get update && \
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-COPY pyproject.toml ./
-
-RUN uv pip install --system -e ".[dev]"
-
+COPY pyproject.toml README.md ./
 COPY src/ ./src/
 COPY data/ ./data/
 COPY frontend/ ./frontend/
+
+RUN uv pip install --system -e ".[dev]"
 
 # ─── API ─────────────────────────────────────────────────────────────────────
 

@@ -9,6 +9,7 @@ from fastapi import FastAPI
 
 from src.api.routes import router
 from src.config import settings
+from src.db.connection import close_client
 
 logger = structlog.get_logger()
 
@@ -21,6 +22,7 @@ async def lifespan(app: FastAPI):
         llm_provider=settings.llm_provider.value,
     )
     yield
+    await close_client()
     logger.info("Shutting down application")
 
 

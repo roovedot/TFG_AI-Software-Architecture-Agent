@@ -1,8 +1,8 @@
-"""Application configuration with support for dev/prod environments.
+"""Application configuration with support for local/production environments.
 
 Usage:
     from src.config import settings
-    print(settings.llm_provider)  # "ollama" in dev, "openai" in prod
+    print(settings.llm_provider)  # "ollama" in local, "openai" in prod
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Environment(str, Enum):
-    DEVELOPMENT = "development"
+    LOCAL = "local"
     PRODUCTION = "production"
 
 
@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     )
 
     # General
-    environment: Environment = Environment.DEVELOPMENT
+    environment: Environment = Environment.LOCAL
 
     # LLM
     llm_provider: LLMProvider = LLMProvider.OLLAMA
@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     embedding_provider: EmbeddingProvider = EmbeddingProvider.OPENAI
     embedding_model: str = "text-embedding-3-small"
 
+    # MongoDB
+    mongodb_url: str = "mongodb://mongodb:27017"
+    mongodb_database: str = "tfg_architect"
+
     # Qdrant
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333
@@ -71,12 +75,16 @@ class Settings(BaseSettings):
 
     # LangSmith
     langchain_tracing_v2: bool = False
+    langsmith_tracing: bool = False
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
     langchain_api_key: str = ""
-    langchain_project: str = "tfg-multiagent-architect"
+    langsmith_api_key: str = ""
+    langchain_project: str = "TFG"
+    langsmith_project: str = "TFG"
 
     @property
-    def is_dev(self) -> bool:
-        return self.environment == Environment.DEVELOPMENT
+    def is_local(self) -> bool:
+        return self.environment == Environment.LOCAL
 
     @property
     def is_prod(self) -> bool:

@@ -45,6 +45,23 @@ class AgentOutput(BaseModel):
     content: str
 
 
+class ChatMessage(BaseModel):
+    """A single message in the post-generation chat."""
+
+    role: str  # "user" | "assistant"
+    content: str
+    timestamp: datetime
+    metrics: LLMMetrics | None = None
+
+
+class ChatRequest(BaseModel):
+    """Payload for POST /projects/{id}/chat."""
+
+    message: str
+    provider: str
+    model: str
+
+
 class FileReference(BaseModel):
     """Reference to a file stored in GridFS."""
 
@@ -103,6 +120,7 @@ class ProjectDetail(BaseModel):
     clarification_answers: dict[str, str] | None = None
     agent_outputs: dict[str, str] | None = None
     agent_metrics: list[LLMMetrics] | None = None
+    chat_history: list[ChatMessage] | None = None
 
 
 class AnalyzeResponse(BaseModel):

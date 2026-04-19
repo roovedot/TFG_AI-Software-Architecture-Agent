@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 
 import structlog
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -13,6 +14,8 @@ from src.db import repositories as repo
 from src.llm.models import get_available_models
 from src.models.project import (
     AnalyzeResponse,
+    ChatMessage,
+    ChatRequest,
     ClarificationSubmission,
     ProjectDetail,
     ProjectRating,
@@ -21,6 +24,7 @@ from src.models.project import (
 from src.orchestration.graph import build_pipeline_graph, build_planner_graph
 from src.orchestration.single_graph import build_single_agent_graph
 from src.utils.file_processing import process_uploaded_file
+from src.utils.pdf import markdown_to_pdf
 
 logger = structlog.get_logger()
 
@@ -192,10 +196,7 @@ async def _run_planner_phase(
     documents: list[str],
     images: list[dict],
 ) -> None:
-    """Background task: run the Planner. If clarification is needed, stop and wait.
-
-    Otherwise, chain directly into the pipeline phase.
-    """
+    """Background task: run the Planner. Always pauses for clarification questions."""
     try:
         planner_cfg = agent_configs["planner"]
         graph = build_planner_graph(
@@ -225,28 +226,14 @@ async def _run_planner_phase(
 
         questions = result.get("clarification_questions", []) or []
         analysis_plan = result.get("analysis_plan") or {}
-        if questions:
-            await repo.set_clarification_questions(
-                project_id, questions, analysis_plan=analysis_plan
-            )
-            logger.info(
-                "Planner produced clarification questions",
-                project_id=project_id,
-                num_questions=len(questions),
-            )
-            return
 
-        # No clarification needed — run the pipeline phase right away.
-        await _run_pipeline_phase(
+        await repo.set_clarification_questions(
+            project_id, questions, analysis_plan=analysis_plan
+        )
+        logger.info(
+            "Planner produced clarification questions",
             project_id=project_id,
-            agent_configs=agent_configs,
-            description=description,
-            documents=documents,
-            images=images,
-            analysis_plan=result.get("analysis_plan", {}),
-            clarification_answers=None,
-            carryover_outputs=result.get("agent_outputs", {}) or {},
-            carryover_metrics=result.get("agent_metrics", []) or [],
+            num_questions=len(questions),
         )
     except Exception as e:
         logger.error("Planner phase failed", project_id=project_id, error=str(e))
@@ -291,7 +278,6 @@ async def _run_pipeline_phase(
             "user_images": images,
             "analysis_plan": analysis_plan,
             "clarification_answers": clarification_answers or {},
-            "clarification_complete": True,
             "agent_configs": agent_configs,
             "revision_count": 0,
             "revision_target": "",
@@ -534,4 +520,100 @@ async def download_file(project_id: str, file_id: str):
         stream,
         media_type=metadata["content_type"],
         headers={"Content-Disposition": f'attachment; filename="{metadata["name"]}"'},
+    )
+
+
+@router.get("/projects/{project_id}/download/pdf")
+async def download_pdf(project_id: str):
+    """Generate and return the architecture report as a PDF."""
+    project = await repo.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.get("status") != "completed" or not project.get("markdown_content"):
+        raise HTTPException(status_code=400, detail="Report not available yet")
+
+    pdf_bytes = markdown_to_pdf(project["markdown_content"])
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="architecture_report.pdf"'},
+    )
+
+
+@router.post("/projects/{project_id}/chat", response_model=ChatMessage)
+async def chat_about_project(project_id: str, body: ChatRequest):
+    """Send a chat message about a completed report and get an LLM response."""
+    import time
+    from datetime import datetime, timezone
+
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
+    from src.llm.prompts import CHAT_SYSTEM_PROMPT
+    from src.llm.providers import get_llm
+    from src.utils.cost import estimate_cost
+
+    project = await repo.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.get("status") != "completed" or not project.get("markdown_content"):
+        raise HTTPException(status_code=400, detail="Report not available for chat")
+
+    # Build message list: system + history + new user message
+    system_prompt = CHAT_SYSTEM_PROMPT.format(markdown_content=project["markdown_content"])
+    messages = [SystemMessage(content=system_prompt)]
+
+    for msg in project.get("chat_history") or []:
+        if msg["role"] == "user":
+            messages.append(HumanMessage(content=msg["content"]))
+        else:
+            messages.append(AIMessage(content=msg["content"]))
+
+    messages.append(HumanMessage(content=body.message))
+
+    # Invoke LLM
+    llm = get_llm(provider=body.provider, model=body.model)
+    start = time.perf_counter()
+    raw = await llm.ainvoke(messages)
+    elapsed = time.perf_counter() - start
+
+    # Extract tokens
+    input_tokens, output_tokens = 0, 0
+    usage = getattr(raw, "usage_metadata", None)
+    if usage:
+        input_tokens = usage.get("input_tokens", 0)
+        output_tokens = usage.get("output_tokens", 0)
+    else:
+        resp_meta = getattr(raw, "response_metadata", {})
+        if "prompt_eval_count" in resp_meta:
+            input_tokens = resp_meta.get("prompt_eval_count", 0)
+            output_tokens = resp_meta.get("eval_count", 0)
+
+    content = raw.content
+    if isinstance(content, list):
+        content = "".join(
+            b.get("text", "") if isinstance(b, dict) else str(b) for b in content
+        )
+
+    cost = estimate_cost(body.provider, body.model, input_tokens, output_tokens)
+    metrics = {
+        "provider": body.provider,
+        "model": body.model,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": input_tokens + output_tokens,
+        "execution_time_seconds": round(elapsed, 3),
+        "estimated_cost_usd": round(cost, 6),
+    }
+
+    now = datetime.now(timezone.utc)
+    user_msg = {"role": "user", "content": body.message, "timestamp": now, "metrics": None}
+    assistant_msg = {"role": "assistant", "content": content, "timestamp": now, "metrics": metrics}
+
+    await repo.append_chat_messages(project_id, [user_msg, assistant_msg])
+
+    return ChatMessage(
+        role="assistant",
+        content=content,
+        timestamp=now,
+        metrics=metrics,
     )

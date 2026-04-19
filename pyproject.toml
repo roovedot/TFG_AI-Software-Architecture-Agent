@@ -23,9 +23,6 @@ dependencies = [
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
 
-    # Vector store
-    "qdrant-client>=1.12",
-
     # LLM providers
     "openai>=1.55",
     "anthropic>=0.39",
@@ -44,6 +41,9 @@ dependencies = [
     # Utilities
     "python-dotenv>=1.0",
     "httpx>=0.28",
+
+    # PDF generation
+    "fpdf2>=2.8",
 ]
 
 [project.optional-dependencies]

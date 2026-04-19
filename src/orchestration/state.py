@@ -28,7 +28,6 @@ class PipelineState(TypedDict, total=False):
     # Clarification phase
     clarification_questions: list[dict]  # [{"question": str, "options": list[str]}]
     clarification_answers: dict[str, str]
-    clarification_complete: bool
 
     # Planner output
     analysis_plan: dict[str, Any]

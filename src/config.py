@@ -24,11 +24,6 @@ class LLMProvider(str, Enum):
     OLLAMA = "ollama"
 
 
-class EmbeddingProvider(str, Enum):
-    OPENAI = "openai"
-    OLLAMA = "ollama"
-
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -54,18 +49,9 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b"
 
-    # Embeddings
-    embedding_provider: EmbeddingProvider = EmbeddingProvider.OPENAI
-    embedding_model: str = "text-embedding-3-small"
-
     # MongoDB
     mongodb_url: str = "mongodb://mongodb:27017"
     mongodb_database: str = "tfg_architect"
-
-    # Qdrant
-    qdrant_host: str = "localhost"
-    qdrant_port: int = 6333
-    qdrant_collection: str = "knowledge_base"
 
     # API
     api_host: str = "0.0.0.0"

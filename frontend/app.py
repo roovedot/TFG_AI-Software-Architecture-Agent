@@ -245,14 +245,33 @@ def render_metrics(metrics: dict) -> None:
     col4.metric("Est. cost", f"${float(metrics.get('estimated_cost_usd') or 0):.4f}")
 
 
-def render_report(markdown_content: str) -> None:
-    """Render the download button and markdown report."""
-    st.download_button(
-        label="Descargar .md",
-        data=markdown_content,
-        file_name="architecture_report.md",
-        mime="text/markdown",
-    )
+def render_report(markdown_content: str, project_id: str) -> None:
+    """Render the download buttons (md + pdf) and markdown report."""
+    col_md, col_pdf = st.columns(2)
+    with col_md:
+        st.download_button(
+            label="Descargar .md",
+            data=markdown_content,
+            file_name="architecture_report.md",
+            mime="text/markdown",
+            key=f"dl_md_{project_id}",
+        )
+    with col_pdf:
+        try:
+            pdf_resp = httpx.get(
+                f"{API_BASE_URL}/projects/{project_id}/download/pdf",
+                timeout=30,
+            )
+            pdf_resp.raise_for_status()
+            st.download_button(
+                label="Descargar .pdf",
+                data=pdf_resp.content,
+                file_name="architecture_report.pdf",
+                mime="application/pdf",
+                key=f"dl_pdf_{project_id}",
+            )
+        except Exception:
+            st.caption("Error al generar PDF")
     st.divider()
     st.markdown(markdown_content)
 
@@ -287,6 +306,74 @@ def render_rating_form(project_id: str, existing_ratings: dict | None) -> None:
             st.error(f"Error al guardar: {e.response.text}")
         except httpx.ConnectError:
             st.error("Cannot connect to API")
+
+
+def render_chat(project_id: str, project: dict) -> None:
+    """Render a chat interface for asking questions about the completed report."""
+    st.divider()
+    st.subheader("Chat sobre el informe")
+
+    # Inline model selector for chat
+    try:
+        available_models = httpx.get(f"{API_BASE_URL}/models", timeout=5).json()
+    except Exception:
+        available_models = []
+
+    if not available_models:
+        st.warning("No se pudieron cargar los modelos disponibles")
+        return
+
+    # Default to the same model used for analysis
+    default_idx = _find_model_index(
+        available_models, project.get("provider"), project.get("model")
+    )
+    labels = [m["label"] for m in available_models]
+    chat_model_idx = st.selectbox(
+        "Modelo para el chat",
+        range(len(labels)),
+        format_func=lambda i: labels[i],
+        index=default_idx,
+        key=f"chat_model_{project_id}",
+    )
+    chat_sel = available_models[chat_model_idx]
+
+    # Display existing chat history
+    chat_history = project.get("chat_history") or []
+    for msg in chat_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # Chat input
+    user_input = st.chat_input("Pregunta algo sobre el informe...", key=f"chat_input_{project_id}")
+    if user_input:
+        # Show user message immediately
+        with st.chat_message("user"):
+            st.markdown(user_input)
+
+        # Call API
+        with st.chat_message("assistant"):
+            with st.spinner("Pensando..."):
+                try:
+                    resp = httpx.post(
+                        f"{API_BASE_URL}/projects/{project_id}/chat",
+                        json={
+                            "message": user_input,
+                            "provider": chat_sel["provider"],
+                            "model": chat_sel["model_id"],
+                        },
+                        timeout=120,
+                    )
+                    resp.raise_for_status()
+                    assistant_msg = resp.json()
+                    st.markdown(assistant_msg["content"])
+                except httpx.HTTPStatusError as e:
+                    st.error(f"Error: {e.response.text}")
+                except httpx.ConnectError:
+                    st.error("No se pudo conectar con la API")
+                except httpx.ReadTimeout:
+                    st.error("Timeout: la respuesta del modelo tardo demasiado")
+
+        st.rerun()
 
 
 def render_processing_view_baseline(project: dict) -> None:
@@ -423,7 +510,7 @@ def render_multiagent_completed(project: dict) -> None:
     # Final markdown report.
     if project.get("markdown_content"):
         st.divider()
-        render_report(project["markdown_content"])
+        render_report(project["markdown_content"], project["id"])
 
     # Per-agent raw outputs.
     outputs = project.get("agent_outputs") or {}
@@ -528,8 +615,10 @@ if st.session_state["view"] == "detail":
                 st.divider()
                 render_metrics(project["metrics"])
             if project.get("markdown_content"):
-                render_report(project["markdown_content"])
+                render_report(project["markdown_content"], project_id)
         render_rating_form(project_id, project.get("ratings"))
+        if project.get("markdown_content"):
+            render_chat(project_id, project)
 
 else:
     # ── Analyze view: tabs for mono / multi ──────────────────────────────

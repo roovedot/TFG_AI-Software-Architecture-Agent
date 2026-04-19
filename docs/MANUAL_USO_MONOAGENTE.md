@@ -8,7 +8,7 @@ Estado del proyecto: **Fase 1 completada** — Sistema monoagente baseline funci
 
 ```
 .
-├── docker-compose.yml          # Orquestacion de servicios (api, frontend, qdrant, mongodb, ollama)
+├── docker-compose.yml          # Orquestacion de servicios (api, frontend, mongodb, ollama)
 ├── Dockerfile                  # Multi-stage build (target: api | frontend)
 ├── pyproject.toml              # Dependencias, config de ruff y pytest
 ├── .env                        # Configuracion unica (local o production)
@@ -47,10 +47,6 @@ Estado del proyecto: **Fase 1 completada** — Sistema monoagente baseline funci
 │   │   ├── state.py            # PipelineState (estado compartido del grafo)
 │   │   ├── single_graph.py     # Grafo LangGraph de 1 nodo (baseline)
 │   │   └── graph.py            # [Fase 2] Grafo multiagente
-│   │
-│   ├── memory/                 # [Fase 2] RAG con Qdrant
-│   │   ├── vector_store.py
-│   │   └── embeddings.py
 │   │
 │   └── utils/
 │       ├── logging.py          # Configuracion de structlog
@@ -141,7 +137,6 @@ Esto levanta 5 servicios:
 | `api` | 8000 | Backend FastAPI |
 | `frontend` | 8501 | UI Streamlit |
 | `mongodb` | 27017 | Base de datos (persistencia de proyectos y archivos) |
-| `qdrant` | 6333 | Base de datos vectorial (para Fase 2) |
 | `ollama` | 11434 | LLM local (solo con `--profile local`) |
 
 La primera vez que levantes Ollama, necesitas descargar el modelo:
@@ -158,7 +153,7 @@ Cambia `ENVIRONMENT=production` en `.env`, y luego:
 docker compose up --build
 ```
 
-Levanta 4 servicios (sin Ollama): `api`, `frontend`, `mongodb`, `qdrant`.
+Levanta 3 servicios (sin Ollama): `api`, `frontend`, `mongodb`.
 
 ### 4.3. Parar todo
 
@@ -167,7 +162,7 @@ docker compose --profile local down       # local
 docker compose down                       # prod
 ```
 
-Para borrar tambien los volumenes (datos de MongoDB, Qdrant y modelos de Ollama):
+Para borrar tambien los volumenes (datos de MongoDB y modelos de Ollama):
 
 ```bash
 docker compose --profile local down -v
@@ -381,11 +376,10 @@ cp .env.example .env
 # MONGODB_URL=mongodb://localhost:27017
 ```
 
-### 6.3. Levantar MongoDB y Qdrant
+### 6.3. Levantar MongoDB
 
 ```bash
 docker run -d -p 27017:27017 -v mongodb_data:/data/db mongo:7
-docker run -d -p 6333:6333 -p 6334:6334 qdrant/qdrant:v1.13.2
 ```
 
 ### 6.4. Levantar la API
@@ -596,7 +590,7 @@ docker compose logs api
 ```
 
 Causas comunes:
-- Qdrant o MongoDB no han terminado de arrancar.
+- MongoDB no ha terminado de arrancar.
 - Error de sintaxis en el `.env`.
 
 ### Ollama no responde

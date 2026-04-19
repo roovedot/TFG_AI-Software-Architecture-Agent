@@ -317,6 +317,16 @@ async def update_ratings(project_id: str, ratings: dict) -> bool:
     return result.matched_count > 0
 
 
+async def append_chat_messages(project_id: str, messages: list[dict]) -> bool:
+    """Atomically append user + assistant messages to the chat_history array."""
+    db = get_database()
+    result = await db.projects.update_one(
+        {"_id": ObjectId(project_id)},
+        {"$push": {"chat_history": {"$each": messages}}},
+    )
+    return result.matched_count > 0
+
+
 async def get_project_file(file_id: str) -> tuple:
     """Return a GridFS download stream and file metadata.
 

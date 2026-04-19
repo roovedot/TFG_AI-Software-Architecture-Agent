@@ -1,8 +1,8 @@
 # AI Software Architecture Agent
 
-Sistema que genera informes de arquitectura de software a partir de la descripcion de un proyecto. Implementa dos modos de analisis (monoagente baseline y pipeline multiagente con 4 agentes especializados), soporta multiples proveedores LLM (OpenAI, Anthropic, Ollama), y produce informes descargables en Markdown o PDF con un chat post-generacion para profundizar en el contenido.
+Sistema multiagente que genera propuestas de arquitectura de software a partir de la descripcion de un proyecto. Implementa dos modos (monoagente baseline y pipeline multiagente con 4 agentes especializados orquestados con LangGraph), soporta OpenAI / Anthropic / Ollama, y produce informes descargables en Markdown o PDF con un chat post-generacion para profundizar en el contenido.
 
-Proyecto de fin de grado — **Iker Alamo** · Universidad (2026).
+Proyecto de Fin de Grado (Ingenieria Informatica) — **Iker Alamo** · Universidad Europea de Madrid (2026).
 
 ---
 
@@ -10,17 +10,18 @@ Proyecto de fin de grado — **Iker Alamo** · Universidad (2026).
 
 1. [Caracteristicas](#1-caracteristicas)
 2. [Arquitectura del sistema](#2-arquitectura-del-sistema)
-3. [Requisitos previos](#3-requisitos-previos)
-4. [Instalacion con Docker](#4-instalacion-con-docker)
-5. [Configuracion (.env)](#5-configuracion-env)
-6. [Uso del sistema](#6-uso-del-sistema)
-7. [Modelos LLM disponibles](#7-modelos-llm-disponibles)
-8. [API REST](#8-api-rest)
-9. [Ejecucion sin Docker](#9-ejecucion-sin-docker)
-10. [Observabilidad con LangSmith](#10-observabilidad-con-langsmith)
-11. [Troubleshooting](#11-troubleshooting)
-12. [Referencia rapida](#12-referencia-rapida)
-13. [Documentacion adicional](#13-documentacion-adicional)
+3. [Despliegue](#3-despliegue)
+4. [Requisitos previos](#4-requisitos-previos)
+5. [Instalacion con Docker](#5-instalacion-con-docker)
+6. [Configuracion (.env)](#6-configuracion-env)
+7. [Uso del sistema](#7-uso-del-sistema)
+8. [Modelos LLM disponibles](#8-modelos-llm-disponibles)
+9. [API REST](#9-api-rest)
+10. [Ejecucion sin Docker](#10-ejecucion-sin-docker)
+11. [Observabilidad con LangSmith](#11-observabilidad-con-langsmith)
+12. [Troubleshooting](#12-troubleshooting)
+13. [Referencia rapida](#13-referencia-rapida)
+14. [Documentacion adicional](#14-documentacion-adicional)
 
 ---
 
@@ -28,55 +29,86 @@ Proyecto de fin de grado — **Iker Alamo** · Universidad (2026).
 
 - **Dos modos de analisis**:
   - **Monoagente (baseline)** — Una unica llamada LLM que produce el informe Markdown completo.
-  - **Multiagente** — Pipeline de 4 agentes especializados (Planner, Requirements, Architecture Designer, Validator) orquestados con LangGraph, con fase de clarificacion obligatoria y feedback loop con hasta 2 revisiones automaticas.
+  - **Multiagente** — Pipeline de 4 agentes especializados (Planner, Requirements & Tech-Stack, Architecture Designer, Validator & Aggregator) orquestados con LangGraph, con fase de clarificacion obligatoria y feedback loop con hasta 2 revisiones automaticas.
 - **Mezcla libre de proveedores**: Cada agente del multiagente puede usar un proveedor/modelo distinto (OpenAI, Anthropic, Ollama).
 - **Entrada multimodal**: Descripcion en texto + archivos adjuntos (PDF, texto, codigo) + imagenes (solo modelos con vision).
-- **Clarificacion interactiva**: En multiagente, el Planner siempre genera 3-5 preguntas de clarificacion antes de ejecutar el pipeline caro.
-- **Informe final en Markdown**: 7 secciones (Resumen, Requisitos, Stack, Arquitectura con diagrama Mermaid, Riesgos, Plan, Proximos Pasos).
+- **Clarificacion interactiva**: En multiagente, el Planner siempre genera 3-5 preguntas con opciones sugeridas antes de ejecutar el pipeline caro.
+- **Informe final en Markdown** con 7 secciones: Resumen, Requisitos, Stack, Arquitectura con diagrama Mermaid, Riesgos, Plan, Proximos Pasos.
 - **Descarga en .md o .pdf**: El PDF se genera on-the-fly con `fpdf2` (pure Python, sin dependencias del sistema).
 - **Chat post-generacion**: Tras completarse el analisis, se puede conversar sobre el informe con el modelo LLM que elija el usuario. El historial se persiste en MongoDB.
 - **Evaluacion estructurada**: Formulario de 7 criterios (0-10) para calificar la calidad del informe.
-- **Historial completo**: Todos los proyectos se persisten en MongoDB con sus outputs intermedios, metricas por agente y archivos adjuntos en GridFS.
+- **Historial completo** en MongoDB con outputs intermedios, metricas por agente y archivos adjuntos en GridFS.
 - **Metricas detalladas**: Tokens, tiempo de ejecucion y coste estimado por agente y agregados.
 
 ---
 
 ## 2. Arquitectura del sistema
 
-```
-+-----------------+        +------------------+       +-------------------+
-|                 |        |                  |       |                   |
-|   Streamlit     |<------>|    FastAPI       |<----->|     MongoDB       |
-|   Frontend      |  HTTP  |    Backend       |       |  + GridFS         |
-|   (port 8501)   |        |   (port 8000)    |       |  (port 27017)     |
-|                 |        |                  |       |                   |
-+-----------------+        +------------------+       +-------------------+
-                                    |
-                                    |  LangGraph (mono / multiagente)
-                                    v
-                            +---------------+
-                            |   Proveedores |
-                            |      LLM      |
-                            |  OpenAI       |
-                            |  Anthropic    |
-                            |  Ollama local |
-                            +---------------+
-```
+![Flujo del sistema multiagente](docs/img/Diagrama%20de%20Flujo%20TFG.drawio.png)
 
-**Servicios orquestados por Docker Compose**:
-- `api` (8000): FastAPI con hot-reload.
-- `frontend` (8501): Streamlit.
-- `mongodb` (27017): Persistencia de proyectos, chat y archivos en GridFS.
-- `ollama` (11434): LLM local con soporte GPU (perfil `local`).
+El sistema sigue un pipeline LangGraph con dos fases separadas por una pausa obligatoria de clarificacion:
 
-Para detalles de arquitectura interna, grafos LangGraph y estado compartido ver [docs/DOCUMENTACION_TECNICA_MULTIAGENTE.md](docs/DOCUMENTACION_TECNICA_MULTIAGENTE.md).
+**Fase 1 — Planner:**
+1. El usuario envia descripcion + archivos desde el **Streamlit Frontend** via `POST /analyze/multiagent`.
+2. **FastAPI Backend** valida modelos, crea el proyecto en MongoDB y lanza la fase Planner como background task (`asyncio.create_task`).
+3. El **Planner Agent** analiza la descripcion y genera un `analysis_plan` + **siempre 3-5 preguntas de clarificacion**. El proyecto queda en estado `waiting_clarification` y el frontend detecta la pausa.
+4. El usuario responde (radio buttons con opciones o texto libre). El frontend envia `POST /projects/{id}/clarification`.
+
+**Fase 2 — Pipeline Graph (LangGraph con feedback loop):**
+5. **Requirements & Tech-Stack Agent** — genera requisitos funcionales/no funcionales y recomendacion de stack (output JSON).
+6. **Architecture Designer Agent** — define patron, componentes, diagrama Mermaid, infraestructura y riesgos (output JSON).
+7. **Validator & Aggregator Agent** — valida coherencia y consolida el Markdown final. Si detecta inconsistencias, devuelve `target=requirements` o `target=designer` (max 2 revisiones). A la tercera vuelta se fuerza la consolidacion.
+8. El **Informe Final** (Markdown, 7 secciones) se guarda en MongoDB junto con metricas por agente y outputs intermedios.
+
+**Post-generacion** (disponible cuando `status == completed`):
+- `GET /projects/{id}/download/pdf` — descarga en PDF.
+- `POST /projects/{id}/chat` — chat sobre el informe con cualquier modelo LLM.
+- Formulario de evaluacion (7 criterios, 0-10).
+
+**Servicios Docker Compose**:
+
+| Servicio | Puerto | Rol |
+|---|---|---|
+| `frontend` | 8501 | Streamlit |
+| `api` | 8000 | FastAPI + LangGraph |
+| `mongodb` | 27017 | Proyectos, outputs, chat, GridFS |
+| `ollama` | 11434 | LLM local con GPU (perfil `local`) |
+
+Para detalles de grafos LangGraph, estado compartido y prompts ver [docs/DOCUMENTACION_TECNICA_MULTIAGENTE.md](docs/DOCUMENTACION_TECNICA_MULTIAGENTE.md).
 
 ---
 
-## 3. Requisitos previos
+## 3. Despliegue
+
+### 3.1 Entorno de desarrollo (local)
+
+Todos los contenedores corren en la maquina del desarrollador bajo **Docker Compose** con el perfil `local`. Los puertos se exponen directamente a `localhost` sin reverse proxy:
+
+- `localhost:8501` — Streamlit frontend
+- `localhost:8000` — FastAPI API (y Swagger en `/docs`)
+- `localhost:27017` — MongoDB
+- `localhost:11434` — Ollama con GPU NVIDIA
+
+El developer accede al frontend normalmente por el navegador y puede acceder directamente a Swagger (`http://localhost:8000/docs`) para pruebas de API. Ollama se levanta solo con `--profile local`.
+
+![Diagrama de despliegue dev](docs/img/Arquitectura%20Dev%20TFG.drawio.png)
+
+### 3.2 Entorno de produccion
+
+Despliegue sobre servidor con **CloudPanel + Nginx** como reverse proxy. Solo el frontend queda expuesto publicamente via el dominio (`architectureagent.dominio.com`); la API y MongoDB se vinculan unicamente a `127.0.0.1`. Ollama no se despliega en produccion — se usan exclusivamente OpenAI / Anthropic.
+
+- `127.0.0.1:8501` — Streamlit (proxied por Nginx)
+- `127.0.0.1:8000` — FastAPI (interno)
+- `127.0.0.1:27017` — MongoDB (interno, acceso via SSH tunnel para administracion)
+
+![Diagrama de despliegue prod](docs/img/Arquitectura%20Prod%20TFG.drawio.png)
+
+---
+
+## 4. Requisitos previos
 
 - **Docker** y **Docker Compose v2+** (metodo recomendado).
-- **Python 3.11+** (solo si se quiere ejecutar sin Docker).
+- **Python 3.11+** (solo para ejecucion sin Docker).
 - **uv** (`pip install uv`, opcional para gestion de dependencias local).
 - **GPU NVIDIA + drivers + nvidia-container-toolkit** (opcional, solo para acelerar Ollama local).
 - Al menos una de:
@@ -86,74 +118,88 @@ Para detalles de arquitectura interna, grafos LangGraph y estado compartido ver 
 
 ---
 
-## 4. Instalacion con Docker
+## 5. Instalacion con Docker
 
-### 4.1 Clonar el repositorio
+### 5.1 Clonar el repositorio
 
 ```bash
 git clone <url-del-repo>
 cd TFG_AI-Software-Architecture-Agent
 ```
 
-### 4.2 Configurar variables de entorno
+### 5.2 Configurar variables de entorno
 
 ```bash
 cp .env.example .env
-# Editar .env con las API keys (ver seccion 5)
+# Editar .env con las API keys (ver seccion 6)
 ```
 
-### 4.3 Levantar los servicios
+### 5.3 Levantar los servicios
 
-**Entorno local (con Ollama, GPU opcional)**:
+**Entorno local (con Ollama + GPU)**:
 
 ```bash
-docker compose --profile local up --build
+sudo docker compose --profile local up -d
 ```
 
-**Entorno sin Ollama (solo cloud)**:
+**Entorno produccion (sin Ollama, cambiar `ENVIRONMENT=production` en .env)**:
 
 ```bash
-docker compose up --build
+sudo docker compose up -d
 ```
 
-### 4.4 (Solo la primera vez) Descargar el modelo de Ollama
+### 5.4 (Solo la primera vez) Descargar el modelo de Ollama
+
+Si el modelo oficial no esta disponible por Cloudflare, usar el mirror de HuggingFace:
 
 ```bash
-docker compose --profile local exec ollama ollama pull llama3.2:3b
+# Desde HuggingFace GGUF
+sudo docker compose --profile local exec ollama \
+  ollama pull hf.co/bartowski/Llama-3.2-3B-Instruct-GGUF:Q4_K_M
+
+# Crear alias para que quede como llama3.2:3b
+sudo docker compose --profile local exec ollama \
+  ollama cp "hf.co/bartowski/Llama-3.2-3B-Instruct-GGUF:Q4_K_M" llama3.2:3b
+
+# Probar interactivamente
+sudo docker compose --profile local exec ollama ollama run llama3.2:3b "hola"
 ```
 
-### 4.5 Acceder a la aplicacion
+### 5.5 Acceder a la aplicacion
 
 - **Frontend**: <http://localhost:8501>
 - **API docs (Swagger)**: <http://localhost:8000/docs>
 - **Health check**: <http://localhost:8000/health>
 
-### 4.6 Parar los servicios
+### 5.6 Parar los servicios
 
 ```bash
-docker compose --profile local down       # deja datos intactos
-docker compose --profile local down -v    # borra volumenes (datos de MongoDB y Ollama)
+sudo docker compose --profile local down      # deja datos intactos
+sudo docker compose --profile local down -v   # borra volumenes (MongoDB + Ollama)
 ```
 
 ---
 
-## 5. Configuracion (.env)
+## 6. Configuracion (.env)
 
-El proyecto usa un unico archivo `.env` (copia de `.env.example`) con las siguientes variables clave:
+El proyecto usa un unico archivo `.env` (copia de `.env.example`). Variables clave:
 
 ```env
 # Entorno: local (con Ollama) | production (solo cloud)
 ENVIRONMENT=local
 
-# Proveedores LLM (rellena las que vayas a usar)
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
+# LLM por defecto (el frontend permite sobreescribir por peticion)
+LLM_PROVIDER=ollama
 
-# Modelos por defecto (los demas se definen en src/llm/models.py)
+# OpenAI
+OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o-mini
+
+# Anthropic
+ANTHROPIC_API_KEY=
 ANTHROPIC_MODEL=claude-sonnet-4-6
 
-# Ollama (local)
+# Ollama (modelo local, solo con --profile local)
 OLLAMA_BASE_URL=http://ollama:11434
 OLLAMA_MODEL=llama3.2:3b
 
@@ -161,46 +207,56 @@ OLLAMA_MODEL=llama3.2:3b
 MONGODB_URL=mongodb://mongodb:27017
 MONGODB_DATABASE=tfg_architect
 
-# Comunicacion frontend <-> API
+# API
+API_HOST=0.0.0.0
+API_PORT=8000
+API_RELOAD=true
+LOG_LEVEL=debug
+
+# Frontend -> API (dentro de Docker)
 API_BASE_URL=http://api:8000
 
-# LangSmith (opcional, trazas de LLM)
+# LangSmith (opcional, trazas LLM)
 LANGCHAIN_TRACING_V2=true
-LANGSMITH_API_KEY=lsv2_pt_...
-LANGSMITH_PROJECT=tfg-multiagent-architect
+LANGSMITH_TRACING=true
+LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com
+LANGCHAIN_API_KEY=
+LANGSMITH_API_KEY=
+LANGCHAIN_PROJECT=TFG
+LANGSMITH_PROJECT=TFG
 ```
 
 **Que modelos aparecen en el frontend**:
-- OpenAI -> requiere `OPENAI_API_KEY`.
-- Anthropic -> requiere `ANTHROPIC_API_KEY`.
+
+- OpenAI -> requiere `OPENAI_API_KEY` no vacia.
+- Anthropic -> requiere `ANTHROPIC_API_KEY` no vacia.
 - Ollama -> requiere `ENVIRONMENT=local` y levantar con `--profile local`.
 
-Tras modificar `.env` reinicia los contenedores: `docker compose --profile local restart api frontend`.
+Tras modificar `.env` reinicia los contenedores: `sudo docker compose --profile local restart api frontend`.
 
 ---
 
-## 6. Uso del sistema
+## 7. Uso del sistema
 
-### 6.1 Acceso al frontend
+### 7.1 Acceso al frontend
 
 Abre <http://localhost:8501>. La sidebar muestra:
+
 - Estado de conexion con la API.
 - Selector de modelo (monoagente) o selectores por agente (multiagente).
-- Historial de proyectos previos con sus badges `[B]` (baseline) o `[M]` (multiagente).
+- Historial de proyectos previos con badges `[B]` (baseline) o `[M]` (multiagente).
 
-### 6.2 Modo monoagente (baseline)
+### 7.2 Modo monoagente (baseline)
 
 Rapido y barato. Una sola llamada al LLM genera el informe completo.
 
-1. Pestaña **"Monoagente"** en la vista principal.
+1. Pestaña **"Monoagente"**.
 2. Escribe la descripcion del proyecto (minimo 10 caracteres).
 3. (Opcional) Adjunta archivos: PDFs, texto, codigo, imagenes.
 4. Selecciona modelo en la sidebar.
-5. Pulsa **"Analizar"**.
+5. Pulsa **"Analizar"**. El analisis corre en segundo plano.
 
-El analisis corre en segundo plano. Puedes navegar a otros proyectos mientras termina.
-
-### 6.3 Modo multiagente
+### 7.3 Modo multiagente
 
 Pipeline de 4 agentes con feedback loop. Mas caro y lento pero con mayor profundidad.
 
@@ -208,31 +264,32 @@ Pipeline de 4 agentes con feedback loop. Mas caro y lento pero con mayor profund
 2. Escribe la descripcion del proyecto + (opcional) archivos.
 3. Elige modelo:
    - **Toggle "Usar el mismo modelo para todos"** -> un solo selectbox para los 4 agentes.
-   - **Sin toggle** -> 4 selectboxes independientes (puedes mezclar proveedores, p. ej. Planner con OpenAI + Designer con Anthropic).
+   - **Sin toggle** -> 4 selectboxes independientes (p. ej. Planner con OpenAI + Designer con Anthropic).
 4. Pulsa **"Analizar"**.
 
-### 6.4 Clarificacion (siempre obligatoria)
+### 7.4 Clarificacion (siempre obligatoria)
 
-Tras la fase Planner, el proyecto queda en estado `waiting_clarification`. El frontend muestra entre 3 y 5 preguntas con opciones sugeridas.
+Tras la fase Planner, el proyecto queda en `waiting_clarification`. El frontend muestra 3-5 preguntas con opciones sugeridas.
 
-- Selecciona una opcion para cada pregunta mediante radio buttons.
+- Selecciona una opcion por pregunta (radio buttons).
 - Si ninguna encaja, elige **"Otro (escribir abajo)"** y escribe tu respuesta libre.
-- Pulsa **"Continuar analisis"** para disparar la segunda fase del pipeline (Requirements -> Designer -> Validator).
+- Pulsa **"Continuar analisis"** para disparar la segunda fase (Requirements -> Designer -> Validator).
 
-El Validator puede solicitar hasta 2 revisiones automaticas a Requirements o Designer si detecta inconsistencias. A la tercera vuelta se fuerza la consolidacion del informe final.
+El Validator puede solicitar hasta 2 revisiones automaticas si detecta inconsistencias. A la tercera vuelta se fuerza la consolidacion del informe final.
 
-### 6.5 Historial de proyectos
+### 7.5 Historial de proyectos
 
 El sidebar muestra todos los analisis previos con indicadores:
+
 - `...` -> en proceso
 - `?` -> esperando clarificacion
 - `ERR` -> error
 - `*` -> proyecto evaluado
 - (sin marca) -> completado sin evaluar
 
-Click en una entrada para ver su detalle. Boton **"x"** para borrarla (elimina documento + archivos GridFS + chat).
+Click para ver el detalle. Boton **"x"** para borrar (elimina documento + archivos GridFS + chat).
 
-### 6.6 Evaluacion del informe
+### 7.6 Evaluacion del informe
 
 En la vista de detalle (proyecto completado) hay un formulario de 7 criterios (0-10):
 
@@ -246,29 +303,30 @@ En la vista de detalle (proyecto completado) hay un formulario de 7 criterios (0
 
 Mas un campo libre de comentarios. Pulsa **"Guardar evaluacion"** para persistir.
 
-### 6.7 Descarga del informe (.md / .pdf)
+### 7.7 Descarga del informe (.md / .pdf)
 
 En la vista de detalle hay dos botones:
-- **Descargar .md** -> Markdown directo.
-- **Descargar .pdf** -> PDF generado on-the-fly con `fpdf2`. Convierte headings, listas, tablas y bloques de codigo. Los diagramas Mermaid no se renderizan como grafico en PDF — se incluyen como fuente plana con una etiqueta "Diagrama (fuente Mermaid):".
 
-### 6.8 Chat sobre el informe
+- **Descargar .md** -> Markdown directo.
+- **Descargar .pdf** -> PDF generado on-the-fly con `fpdf2`. Convierte headings, listas, tablas y bloques de codigo. Los diagramas Mermaid no se renderizan como grafico — se incluyen como fuente plana con la etiqueta "Diagrama (fuente Mermaid):".
+
+### 7.8 Chat sobre el informe
 
 Tras el formulario de evaluacion aparece un chat conversacional:
 
-1. Selector inline de proveedor/modelo (por defecto usa el mismo modelo del analisis).
+1. Selector inline de proveedor/modelo (por defecto usa el mismo del analisis).
 2. Caja de entrada `"Pregunta algo sobre el informe..."`.
-3. El historial de la conversacion se muestra encima en burbujas y se persiste en MongoDB (`chat_history`).
-4. Cada respuesta del asistente guarda tambien sus metricas (tokens, tiempo, coste).
+3. El historial se muestra encima en burbujas y se persiste en MongoDB (`chat_history`).
+4. Cada respuesta del asistente guarda sus metricas (tokens, tiempo, coste).
 
 El chat no es un agente del pipeline — es una llamada directa al LLM con el informe inyectado en el system prompt. Puedes cambiar de modelo entre mensajes sin perder el historial.
 
 ---
 
-## 7. Modelos LLM disponibles
+## 8. Modelos LLM disponibles
 
 | Proveedor | Modelo | Tier | Vision | Coste (input/output por 1M tokens) |
-|-----------|--------|------|--------|-------------------------------------|
+|---|---|---|---|---|
 | OpenAI | gpt-4o-mini | Economic | Si | $0.15 / $0.60 |
 | OpenAI | gpt-5.2 | Performance | Si | $1.75 / $14.00 |
 | Anthropic | claude-haiku-4-5 | Economic | Si | $1.00 / $5.00 |
@@ -277,19 +335,19 @@ El chat no es un agente del pipeline — es una llamada directa al LLM con el in
 
 **Recomendacion practica**: Para el multiagente, combinar un modelo barato (gpt-4o-mini) en Planner/Designer con uno mas capaz (Sonnet) en Requirements/Validator da buena relacion coste/calidad.
 
-El catalogo y el filtrado de modelos vive en [src/llm/models.py](src/llm/models.py) y los precios en [src/utils/cost.py](src/utils/cost.py).
+El catalogo y filtrado vive en [src/llm/models.py](src/llm/models.py) y los precios en [src/utils/cost.py](src/utils/cost.py).
 
 ---
 
-## 8. API REST
+## 9. API REST
 
 Documentacion interactiva: <http://localhost:8000/docs>
 
-### 8.1 Endpoints principales
+### 9.1 Endpoints
 
 | Metodo | Ruta | Descripcion |
-|--------|------|-------------|
-| GET | `/health` | Estado del servicio, entorno, proveedor LLM |
+|---|---|---|
+| GET | `/health` | Estado del servicio |
 | GET | `/models` | Modelos disponibles (filtrados por API keys y entorno) |
 | POST | `/analyze/baseline` | Iniciar analisis monoagente (FormData) |
 | POST | `/analyze/multiagent` | Iniciar analisis multiagente (FormData con 8 campos de modelo) |
@@ -302,7 +360,26 @@ Documentacion interactiva: <http://localhost:8000/docs>
 | GET | `/projects/{id}/download/pdf` | Descargar informe como PDF |
 | POST | `/projects/{id}/chat` | Enviar mensaje al chat post-generacion |
 
-### 8.2 Ejemplo: lanzar un analisis multiagente por curl
+### 9.2 Ejemplos basicos (curl)
+
+```bash
+# Health check
+curl localhost:8000/health
+
+# Listar modelos disponibles
+curl localhost:8000/models
+
+# Listar proyectos
+curl localhost:8000/projects
+
+# Detalle de un proyecto
+curl localhost:8000/projects/{PROJECT_ID}
+
+# Eliminar un proyecto
+curl -X DELETE localhost:8000/projects/{PROJECT_ID}
+```
+
+### 9.3 Lanzar un analisis multiagente
 
 ```bash
 curl -X POST http://localhost:8000/analyze/multiagent \
@@ -317,16 +394,10 @@ curl -X POST http://localhost:8000/analyze/multiagent \
   -F "validator_model=claude-sonnet-4-6"
 ```
 
-Respuesta:
-
-```json
-{"project_id": "683d...", "status": "processing"}
-```
-
-### 8.3 Ejemplo: responder clarificacion
+### 9.4 Responder clarificacion
 
 ```bash
-curl -X POST http://localhost:8000/projects/{project_id}/clarification \
+curl -X POST http://localhost:8000/projects/{PROJECT_ID}/clarification \
   -H "Content-Type: application/json" \
   -d '{
     "answers": {
@@ -336,16 +407,14 @@ curl -X POST http://localhost:8000/projects/{project_id}/clarification \
   }'
 ```
 
-### 8.4 Ejemplo: descargar PDF
+### 9.5 Descargar PDF y chatear
 
 ```bash
-curl -o informe.pdf http://localhost:8000/projects/{project_id}/download/pdf
-```
+# PDF
+curl -o informe.pdf http://localhost:8000/projects/{PROJECT_ID}/download/pdf
 
-### 8.5 Ejemplo: chatear sobre el informe
-
-```bash
-curl -X POST http://localhost:8000/projects/{project_id}/chat \
+# Chat
+curl -X POST http://localhost:8000/projects/{PROJECT_ID}/chat \
   -H "Content-Type: application/json" \
   -d '{
     "message": "Por que recomendais Postgres en vez de MongoDB?",
@@ -356,9 +425,9 @@ curl -X POST http://localhost:8000/projects/{project_id}/chat \
 
 ---
 
-## 9. Ejecucion sin Docker
+## 10. Ejecucion sin Docker
 
-### 9.1 Dependencias
+### 10.1 Dependencias
 
 ```bash
 pip install uv
@@ -367,13 +436,13 @@ source .venv/bin/activate
 uv pip install -e ".[dev,frontend]"
 ```
 
-### 9.2 Levantar MongoDB manualmente
+### 10.2 Levantar MongoDB manualmente
 
 ```bash
 docker run -d -p 27017:27017 -v mongodb_data:/data/db mongo:7
 ```
 
-### 9.3 Ajustar `.env`
+### 10.3 Ajustar `.env`
 
 ```env
 OLLAMA_BASE_URL=http://localhost:11434
@@ -381,13 +450,13 @@ MONGODB_URL=mongodb://localhost:27017
 API_BASE_URL=http://localhost:8000
 ```
 
-### 9.4 Arrancar la API
+### 10.4 Arrancar la API
 
 ```bash
 uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 9.5 Arrancar el frontend (otra terminal)
+### 10.5 Arrancar el frontend (otra terminal)
 
 ```bash
 streamlit run frontend/app.py --server.port 8501
@@ -395,7 +464,7 @@ streamlit run frontend/app.py --server.port 8501
 
 ---
 
-## 10. Observabilidad con LangSmith
+## 11. Observabilidad con LangSmith
 
 LangSmith permite inspeccionar cada llamada al LLM (prompt, respuesta, tokens, latencia) y la estructura del grafo LangGraph.
 
@@ -405,8 +474,12 @@ LangSmith permite inspeccionar cada llamada al LLM (prompt, respuesta, tokens, l
 
    ```env
    LANGCHAIN_TRACING_V2=true
+   LANGSMITH_TRACING=true
+   LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com
+   LANGCHAIN_API_KEY=lsv2_pt_...
    LANGSMITH_API_KEY=lsv2_pt_...
-   LANGSMITH_PROJECT=tfg-multiagent-architect
+   LANGCHAIN_PROJECT=TFG
+   LANGSMITH_PROJECT=TFG
    ```
 
 4. Reinicia los contenedores.
@@ -415,7 +488,7 @@ LangChain envia las trazas automaticamente — no hace falta tocar codigo.
 
 ---
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 ### No aparecen modelos en el frontend
 
@@ -425,7 +498,7 @@ LangChain envia las trazas automaticamente — no hace falta tocar codigo.
 
 ### El frontend no conecta con la API
 
-Dentro de Docker, el frontend debe apuntar al servicio por su nombre de red:
+Dentro de Docker el frontend debe apuntar al servicio por su nombre de red:
 
 ```env
 API_BASE_URL=http://api:8000
@@ -435,13 +508,14 @@ Fuera de Docker: `API_BASE_URL=http://localhost:8000`.
 
 ### El historial no carga
 
-- Revisa `docker compose ps mongodb` y `docker compose logs mongodb`.
+- Revisa `sudo docker compose ps mongodb` y `sudo docker compose logs mongodb`.
 - Confirma `MONGODB_URL=mongodb://mongodb:27017` (dentro de Docker).
+- Shell directo: `sudo docker compose exec mongodb mongosh tfg_architect`.
 
 ### Un proyecto se queda en "processing" indefinidamente
 
-- Revisa `docker compose logs -f api`.
-- Consulta `curl http://localhost:8000/projects/{id}` — si `status=="error"` el campo `error_message` da la causa.
+- `sudo docker compose logs -f api`.
+- `curl http://localhost:8000/projects/{id}` — si `status=="error"` el campo `error_message` da la causa.
 - Si la API se reinicio durante un analisis, el proyecto queda colgado. Elimina y relanza.
 
 ### El PDF sale con caracteres raros
@@ -457,38 +531,43 @@ El generador reemplaza la mayoria de caracteres Unicode no soportados por Helvet
 ### Ollama: "model not found"
 
 ```bash
-docker compose --profile local exec ollama ollama list
-docker compose --profile local exec ollama ollama pull <modelo>
+sudo docker compose --profile local exec ollama ollama list
+sudo docker compose --profile local exec ollama \
+  ollama pull hf.co/bartowski/Llama-3.2-3B-Instruct-GGUF:Q4_K_M
 ```
 
 ---
 
-## 12. Referencia rapida
+## 13. Referencia rapida
 
 | Accion | Comando |
-|--------|---------|
-| Levantar local | `docker compose --profile local up --build` |
-| Levantar prod | `docker compose up --build` |
-| Parar todo | `docker compose --profile local down` |
-| Reiniciar api+frontend | `docker compose restart api frontend` |
-| Ver logs API | `docker compose logs -f api` |
-| Ver logs Ollama | `docker compose --profile local logs -f ollama` |
+|---|---|
+| Levantar local | `sudo docker compose --profile local up -d` |
+| Levantar prod | `sudo docker compose up -d` |
+| Parar local | `sudo docker compose --profile local down` |
+| Parar prod | `sudo docker compose down` |
+| Logs local | `sudo docker compose --profile local logs -f` |
+| Logs prod | `sudo docker compose logs -f` |
+| Logs de un servicio | `sudo docker compose logs -f api` (o `ollama` / `mongodb`) |
+| Reiniciar api+frontend | `sudo docker compose restart api frontend` |
 | Health check | `curl localhost:8000/health` |
 | Swagger UI | <http://localhost:8000/docs> |
 | Frontend | <http://localhost:8501> |
-| Shell MongoDB | `docker compose exec mongodb mongosh tfg_architect` |
-| Descargar modelo Ollama | `docker compose --profile local exec ollama ollama pull llama3.2:3b` |
+| Shell MongoDB | `sudo docker compose exec mongodb mongosh tfg_architect` |
+| Ver proyectos en Mongo | `sudo docker compose exec mongodb mongosh tfg_architect --eval "db.projects.find().pretty()"` |
+| Ver archivos GridFS | `sudo docker compose exec mongodb mongosh tfg_architect --eval "db.fs.files.find().pretty()"` |
+| Modelos Ollama | `sudo docker compose --profile local exec ollama ollama list` |
 | Linting | `ruff check src/ tests/ frontend/` |
 | Formatear | `ruff format src/ tests/ frontend/` |
 
 ---
 
-## 13. Documentacion adicional
+## 14. Documentacion adicional
 
 - **[docs/DOCUMENTACION_TECNICA_MULTIAGENTE.md](docs/DOCUMENTACION_TECNICA_MULTIAGENTE.md)** — Arquitectura interna del sistema multiagente: grafos LangGraph, estado compartido, prompts, persistencia y decisiones de diseno.
 - **[docs/MANUAL_USO_MONOAGENTE.md](docs/MANUAL_USO_MONOAGENTE.md)** — Manual detallado del modo monoagente (Fase 1).
-- **[docs/diagrama_multiagente.drawio.xml](docs/diagrama_multiagente.drawio.xml)** — Diagrama del flujo multiagente (abrir con <https://app.diagrams.net>).
 - **[docs/PUNTO_DE_PARTIDA.md](docs/PUNTO_DE_PARTIDA.md)** — Vision y objetivos iniciales del proyecto.
+- **[Cheatsheet_comandos.txt](Cheatsheet_comandos.txt)** — Chuleta de comandos de uso diario (Docker, Ollama, MongoDB, API).
 
 ---
 

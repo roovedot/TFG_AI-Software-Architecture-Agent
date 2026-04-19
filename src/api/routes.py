@@ -196,10 +196,7 @@ async def _run_planner_phase(
     documents: list[str],
     images: list[dict],
 ) -> None:
-    """Background task: run the Planner. If clarification is needed, stop and wait.
-
-    Otherwise, chain directly into the pipeline phase.
-    """
+    """Background task: run the Planner. Always pauses for clarification questions."""
     try:
         planner_cfg = agent_configs["planner"]
         graph = build_planner_graph(
@@ -229,28 +226,14 @@ async def _run_planner_phase(
 
         questions = result.get("clarification_questions", []) or []
         analysis_plan = result.get("analysis_plan") or {}
-        if questions:
-            await repo.set_clarification_questions(
-                project_id, questions, analysis_plan=analysis_plan
-            )
-            logger.info(
-                "Planner produced clarification questions",
-                project_id=project_id,
-                num_questions=len(questions),
-            )
-            return
 
-        # No clarification needed — run the pipeline phase right away.
-        await _run_pipeline_phase(
+        await repo.set_clarification_questions(
+            project_id, questions, analysis_plan=analysis_plan
+        )
+        logger.info(
+            "Planner produced clarification questions",
             project_id=project_id,
-            agent_configs=agent_configs,
-            description=description,
-            documents=documents,
-            images=images,
-            analysis_plan=result.get("analysis_plan", {}),
-            clarification_answers=None,
-            carryover_outputs=result.get("agent_outputs", {}) or {},
-            carryover_metrics=result.get("agent_metrics", []) or [],
+            num_questions=len(questions),
         )
     except Exception as e:
         logger.error("Planner phase failed", project_id=project_id, error=str(e))
@@ -295,7 +278,6 @@ async def _run_pipeline_phase(
             "user_images": images,
             "analysis_plan": analysis_plan,
             "clarification_answers": clarification_answers or {},
-            "clarification_complete": True,
             "agent_configs": agent_configs,
             "revision_count": 0,
             "revision_target": "",

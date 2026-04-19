@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import structlog
@@ -18,8 +17,8 @@ logger = structlog.get_logger()
 class PlannerAgent(BaseAgent):
     """First agent in the multiagent pipeline.
 
-    Decides whether clarification questions are needed and produces an
-    `analysis_plan` that downstream agents use as guidance.
+    Always produces 3 to 5 clarification questions plus an `analysis_plan`
+    that downstream agents use as guidance.
     """
 
     def __init__(
@@ -53,15 +52,10 @@ class PlannerAgent(BaseAgent):
         )
         parsed = self._parse_json_output(raw_text)
 
-        needs_clarification = bool(parsed.get("needs_clarification", False))
         questions = parsed.get("questions", []) or []
         analysis_plan = parsed.get("analysis_plan", {}) or {}
 
-        logger.info(
-            "Planner: done",
-            needs_clarification=needs_clarification,
-            num_questions=len(questions),
-        )
+        logger.info("Planner: done", num_questions=len(questions))
 
         metrics_with_agent = {**metrics, "agent": self.name}
         existing_outputs = state.get("agent_outputs", {}) or {}
@@ -70,7 +64,6 @@ class PlannerAgent(BaseAgent):
         return {
             "analysis_plan": analysis_plan,
             "clarification_questions": questions,
-            "clarification_complete": not needs_clarification,
             "current_step": "planner",
             "agent_outputs": {**existing_outputs, "planner": raw_text},
             "agent_metrics": [*existing_metrics, metrics_with_agent],

@@ -55,6 +55,5 @@ docker-data/
 .claude/
 
 # Docs
-docs/*
-!docs/MANUAL_USO_MONOAGENTE.md
+
 sucio.txt

@@ -67,7 +67,6 @@ Proyecto de fin de grado — **Iker Alamo** · Universidad (2026).
 - `api` (8000): FastAPI con hot-reload.
 - `frontend` (8501): Streamlit.
 - `mongodb` (27017): Persistencia de proyectos, chat y archivos en GridFS.
-- `qdrant` (6333): Base vectorial (reservada para futuro RAG).
 - `ollama` (11434): LLM local con soporte GPU (perfil `local`).
 
 Para detalles de arquitectura interna, grafos LangGraph y estado compartido ver [docs/DOCUMENTACION_TECNICA_MULTIAGENTE.md](docs/DOCUMENTACION_TECNICA_MULTIAGENTE.md).
@@ -368,11 +367,10 @@ source .venv/bin/activate
 uv pip install -e ".[dev,frontend]"
 ```
 
-### 9.2 Levantar MongoDB y Qdrant manualmente
+### 9.2 Levantar MongoDB manualmente
 
 ```bash
 docker run -d -p 27017:27017 -v mongodb_data:/data/db mongo:7
-docker run -d -p 6333:6333 -p 6334:6334 qdrant/qdrant:v1.13.2
 ```
 
 ### 9.3 Ajustar `.env`

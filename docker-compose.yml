@@ -12,7 +12,6 @@ services:
       - ./src:/app/src
       - ./data:/app/data
     depends_on:
-      - qdrant
       - mongodb
     restart: unless-stopped
 
@@ -27,15 +26,6 @@ services:
       - .env
     depends_on:
       - api
-    restart: unless-stopped
-
-  qdrant:
-    image: qdrant/qdrant:v1.13.2
-    ports:
-      - "6333:6333"
-      - "6334:6334"
-    volumes:
-      - qdrant_data:/qdrant/storage
     restart: unless-stopped
 
   mongodb:
@@ -68,6 +58,5 @@ services:
               capabilities: [gpu]
 
 volumes:
-  qdrant_data:
   mongodb_data:
   ollama_data:

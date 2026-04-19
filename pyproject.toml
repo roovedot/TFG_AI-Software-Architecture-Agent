@@ -23,9 +23,6 @@ dependencies = [
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
 
-    # Vector store
-    "qdrant-client>=1.12",
-
     # LLM providers
     "openai>=1.55",
     "anthropic>=0.39",

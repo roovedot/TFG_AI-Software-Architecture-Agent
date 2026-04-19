@@ -74,7 +74,7 @@ TFG_AI-Software-Architecture-Agent/
 |
 |-- docs/                          # Documentacion
 |-- tests/                         # Tests (pytest-asyncio)
-|-- docker-compose.yml             # api, frontend, mongodb, qdrant, ollama
+|-- docker-compose.yml             # api, frontend, mongodb, ollama
 |-- Dockerfile                     # Multi-stage: base -> api, base -> frontend
 |-- pyproject.toml                 # Dependencias y configuracion
 |-- .env.example                   # Variables de entorno
@@ -619,7 +619,6 @@ docker compose up --build
 - `api` (puerto 8000): FastAPI con hot-reload via volumen `./src:/app/src`
 - `frontend` (puerto 8501): Streamlit (requiere rebuild para cambios)
 - `mongodb` (puerto 27017): Persistencia de proyectos
-- `qdrant` (puerto 6333): Vector DB (reservado para futuro RAG)
 - `ollama` (puerto 11434): LLM local con soporte GPU (profile: local)
 
 ### 12.2 Variables de entorno clave
